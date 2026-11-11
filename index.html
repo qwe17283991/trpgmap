@@ -47,7 +47,29 @@ header .sp{flex:1}
 canvas{display:block;width:100%;height:100%}
 #hud{position:absolute;left:10px;top:10px;pointer-events:none;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
 .tag{background:rgba(12,18,17,.8);color:#eef2ea;padding:4px 9px;border-radius:4px;font-size:13px}
-#status{position:absolute;right:10px;top:10px;font-size:12px}
+#status{position:absolute;left:50%;transform:translateX(-50%);top:10px;font-size:12px;z-index:7;white-space:nowrap}
+#music{position:absolute;right:10px;top:10px;z-index:6;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:calc(100% - 20px)}
+#music[hidden]{display:none}
+#muFab{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:20px;line-height:1;cursor:pointer;box-shadow:var(--shadow);position:relative}
+#muFab.on::after{content:"";position:absolute;right:4px;top:4px;width:9px;height:9px;border-radius:50%;background:#5bd16a;box-shadow:0 0 0 2px var(--panel)}
+#muCard{width:280px;max-width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:8px 10px 10px;display:flex;flex-direction:column;gap:6px}
+#music.min #muCard{position:absolute;right:0;top:0;width:220px;height:124px;overflow:hidden;opacity:0;pointer-events:none;z-index:-1}
+.mu-top{display:flex;align-items:center;gap:6px;min-width:0}
+#muTitle{flex:1;min-width:0;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mu-kind{font-size:11px;padding:1px 6px;border-radius:3px;background:var(--chip);color:var(--ink-2);white-space:nowrap}
+#muEmbed{border-radius:8px;overflow:hidden;background:#000}
+#muEmbed:empty{display:none}
+#muEmbed.vid{aspect-ratio:16/9}
+#muEmbed.sp{height:152px;background:none}
+#muEmbed iframe,#muEmbed>div{width:100%;height:100%;border:0;display:block}
+#muEmbed .ph{display:flex;align-items:center;justify-content:center;color:#cfd6cc;font-size:13px;height:100%}
+#muCtl{display:flex;flex-direction:column;gap:6px}
+#muCtl .row{margin:0;flex-wrap:nowrap}
+#muCtl .btn{padding:6px 10px;min-width:40px}
+#muCtl input[type=range]{flex:1;min-width:0;accent-color:var(--brass)}
+#muTime{font-size:12px;color:var(--ink-2);white-space:nowrap}
+.mu-unlock{background:var(--brass);color:var(--brass-ink);border:0;border-radius:8px;padding:9px;font:inherit;font-weight:700;cursor:pointer}
+.sheet-body input[type=range]{flex:1;accent-color:var(--brass)}
 #tools{display:flex;gap:4px;padding:6px 8px;background:var(--panel);border-top:1px solid var(--line);overflow-x:auto;scrollbar-width:none;z-index:5}
 #tools::-webkit-scrollbar{display:none}
 .tool{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:1px;min-width:54px;padding:5px 6px;border:1px solid transparent;border-radius:8px;background:none;color:var(--ink);font:inherit;font-size:11px;cursor:pointer}
@@ -132,6 +154,7 @@ input[type=color]{width:40px;height:34px;padding:0;border:1px solid var(--line);
     <canvas id="cv"></canvas>
     <div id="hud"></div>
     <div id="status" class="tag" hidden></div>
+    <div id="music" hidden><button id="muFab" aria-label="音樂播放器">♪</button><div id="muCard" role="region" aria-label="音樂播放器"><div class="mu-top"><span id="muTitle"></span><span class="mu-kind" id="muKind"></span><button class="btn" id="muMin" aria-label="收起播放器" style="padding:2px 9px">–</button></div><div id="muEmbed"></div><div id="muCtl"></div></div></div>
     <div id="selbar" role="toolbar" aria-label="選取的棋子"></div>
     <div id="zoom"><button data-z="1.25" aria-label="放大">+</button><button data-z="0.8" aria-label="縮小">−</button></div>
   </div>
@@ -170,7 +193,7 @@ const FOOT = Object.fromEntries(SIZES.map(s => [s.k, s.f]));
 const PALETTE = ["#3f8f96","#c2563f","#7a63b8","#4f9a4a","#c49a2c","#b84f86","#4a6fb0","#8a8f86"];
 const MAX_GRID = 120;
 function defaultPCs(startN){ const o={}; for (let i=0;i<5;i++) o["pc"+uid()]={name:`角色${startN+i}`,size:"medium",color:PALETTE[i],vision:20,claimable:true,hidden:false,x:2+i*2,y:2,at:Date.now()+i,createdBy:"gm"}; return o; }
-const DEFAULT_CFG = {cols:24, rows:16, meters:2, fog:false, shareVision:true, walls:"", reveal:"", bgId:null, title:"戰術地圖"};
+const DEFAULT_CFG = {cols:12, rows:40, meters:2, fog:false, shareVision:true, walls:"", reveal:"", bgId:null, title:"戰術地圖"};
 
 /* ============ 小工具 ============ */
 const $ = s => document.querySelector(s);
@@ -416,6 +439,17 @@ function tplLabel(t){
 const cv=$("#cv"), ctx=cv.getContext("2d");
 let bgImg=null, bgData=null;
 function setBgData(data){ if (data===bgData) return; bgData=data; bgImg=null; if(!data){ draw(); return; } const im=new Image(); im.onload=()=>{ bgImg=im; draw(); }; im.src=data; }
+function bgBox(){ // 底圖在格子座標中的位置；沒設定寬度時沿用舊版「拉伸填滿」
+  const c=S.bgDraft||S.cfg, {cols,rows}=S.cfg;
+  if (!(+c.bgW>0) || !bgImg) return {x:0,y:0,w:cols,h:rows};
+  const w=+c.bgW; return {x:+c.bgX||0, y:+c.bgY||0, w, h:w*bgImg.naturalHeight/bgImg.naturalWidth};
+}
+function bgFields(){ const b=bgBox(); return {bgX:b.x, bgY:b.y, bgW:b.w}; }
+const r2 = v => Math.round(v*100)/100;
+function bgScale(k, ax, ay){ // 以 (ax,ay) 為錨點縮放底圖
+  if (!bgImg) return; const b=bgFields(), nw=clamp(b.bgW*k,1,MAX_GRID*4), q=nw/b.bgW;
+  patchCfg({bgW:r2(nw), bgX:r2(ax-(ax-b.bgX)*q), bgY:r2(ay-(ay-b.bgY)*q)});
+}
 function resize(){ const r=cv.getBoundingClientRect(), d=window.devicePixelRatio||1; cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); draw(); }
 const s2w=(x,y)=>[(x-S.view.x)/S.view.s, (y-S.view.y)/S.view.s];
 let raf=0; function draw(){ if(!raf) raf=requestAnimationFrame(()=>{raf=0; paint();}); }
@@ -429,7 +463,10 @@ function paint(){
   const {cols,rows}=S.cfg, s=S.view.s;
   ctx.save(); ctx.translate(S.view.x,S.view.y);
   ctx.fillStyle="#3a4a46"; ctx.fillRect(0,0,cols*s,rows*s);
-  if (bgImg) ctx.drawImage(bgImg,0,0,cols*s,rows*s);
+  if (bgImg){ const b=bgBox();
+    if (S.tool==="bg" && S.isGM){ ctx.globalAlpha=.35; ctx.drawImage(bgImg,b.x*s,b.y*s,b.w*s,b.h*s); ctx.globalAlpha=1; }
+    ctx.save(); ctx.beginPath(); ctx.rect(0,0,cols*s,rows*s); ctx.clip(); ctx.drawImage(bgImg,b.x*s,b.y*s,b.w*s,b.h*s); ctx.restore();
+    if (S.tool==="bg" && S.isGM){ ctx.strokeStyle="#ffd36a"; ctx.lineWidth=2; ctx.setLineDash([8,5]); ctx.strokeRect(b.x*s,b.y*s,b.w*s,b.h*s); ctx.setLineDash([]); } }
   const walls=ensureBits(S.cfg.walls);
   ctx.fillStyle="rgba(18,20,22,.86)";
   for(let i=0;i<walls.length;i++) if(walls.charCodeAt(i)===49){ ctx.fillRect((i%cols)*s,((i/cols)|0)*s,s,s); }
@@ -574,6 +611,7 @@ cv.addEventListener("pointerdown", e => {
   if (pointers.size>2) return;
   const [wx,wy]=s2w(e.offsetX,e.offsetY), tool=S.tool;
   if (e.button===1 || e.button===2){ gesture=panG(e); return; }
+  if (tool==="bg" && S.isGM && bgImg){ const b=bgFields(); S.bgDraft={...b}; gesture={type:"bgmove",sx:wx,sy:wy,b}; draw(); return; }
   if (tool==="select"){
     const st=S.selTpl && S.templates[S.selTpl];
     if (st && canDeleteTpl(st)){
@@ -630,6 +668,7 @@ cv.addEventListener("pointermove", e => {
     if (x!==S.drag.x || y!==S.drag.y){ S.drag.x=x; S.drag.y=y; sendDrag({id:S.drag.id,x,y}); }
     draw(); return;
   }
+  if (gesture.type==="bgmove" && S.bgDraft){ const g=gesture.b; S.bgDraft={...g, bgX:r2(g.bgX+wx-gesture.sx), bgY:r2(g.bgY+wy-gesture.sy)}; draw(); return; }
   if (gesture.type==="ruler"){ S.ruler.x1=Math.floor(wx); S.ruler.y1=Math.floor(wy); draw(); return; }
   if (gesture.type==="tplmove"){
     if (!gesture.moved && Math.hypot(e.offsetX-gesture.px,e.offsetY-gesture.py)<6) return;
@@ -661,6 +700,7 @@ function endPointer(e){
   pointers.delete(e.pointerId);
   if (!gesture) return;
   if (gesture.type==="pinch"){ if (pointers.size===0) gesture=null; return; }
+  if (gesture.type==="bgmove"){ const d=S.bgDraft; S.bgDraft=null; if (d && (d.bgX!==gesture.b.bgX || d.bgY!==gesture.b.bgY)) patchCfg(d); renderPanel(); }
   if (gesture.type==="drag" && S.drag){
     const d=S.drag; S.drag=null;
     if (d.moved && (d.x!==d.startX || d.y!==d.startY)) patchToken(d.id,{x:d.x,y:d.y});
@@ -704,7 +744,7 @@ function endPointer(e){
   }
   gesture=null; draw();
 }
-function cancelGesture(){ if (S.drag){ S.drag=null; sendDrag(null); } clearInterval(holdTimer); S.tplDrag=null; S.draft=null; S.paint=null; gesture=null; }
+function cancelGesture(){ S.bgDraft=null; if (S.drag){ S.drag=null; sendDrag(null); } clearInterval(holdTimer); S.tplDrag=null; S.draft=null; S.paint=null; gesture=null; }
 function unbindTpl(id){ const st=S.templates[id]; if(!st) return; let g=normT(st); const [bx,by]=bindShift(g); g=shiftT(g,bx,by); delete g.bind; putTemplate(id,g); toast("已解除綁定"); renderPanel(); }
 function addDefaultPCs(){
   const n=Object.values(S.tokens).filter(t=>/^角色\d+$/.test(t.name||"")).length+1;
@@ -715,8 +755,10 @@ function deleteTokenFull(id){ removeFromCombat(id); for (const [tid,t] of Object
 cv.addEventListener("pointerup", endPointer);
 cv.addEventListener("pointercancel", endPointer);
 cv.addEventListener("contextmenu", e=>e.preventDefault());
+let bgWheelT=0;
 cv.addEventListener("wheel", e => {
   e.preventDefault();
+  if (S.tool==="bg" && S.isGM && bgImg && !e.ctrlKey){ const [wx,wy]=s2w(e.offsetX,e.offsetY); clearTimeout(bgWheelT); bgWheelT=setTimeout(()=>renderPanel(),300); bgScale(Math.exp(-e.deltaY*0.0006),wx,wy); return; }
   const ns=clamp(S.view.s*Math.exp(-e.deltaY*0.0015),8,140), r=ns/S.view.s;
   S.view.x=e.offsetX-(e.offsetX-S.view.x)*r; S.view.y=e.offsetY-(e.offsetY-S.view.y)*r; S.view.s=ns; draw();
 },{passive:false});
@@ -735,6 +777,11 @@ let selbarKey="";
 function renderSelbar(){
   const t=S.sel && S.tokens[S.sel];
   const tp=!t && S.selTpl && S.templates[S.selTpl];
+  if (S.tool==="bg" && S.isGM){
+    if (selbarKey==="bg") return; selbarKey="bg"; const el=$("#selbar");
+    el.innerHTML=`<span class="nm">調整底圖</span><span class="hint">拖曳移動</span><button class="btn" data-sb="bgDown" aria-label="縮小底圖">−</button><button class="btn" data-sb="bgUp" aria-label="放大底圖">+</button><button class="btn primary" data-sb="bgDone">完成</button>`;
+    el.classList.add("open"); return;
+  }
   const key = t ? ["t",S.sel,t.name,canControl(t)].join("|") : tp ? ["p",S.selTpl,tp.bind?tp.bind.tid:"",tp.len,tp.w,tp.h,tp.x1,tp.y1,canDeleteTpl(tp)].join("|") : "";
   if (key===selbarKey) return; selbarKey=key;
   const el=$("#selbar");
@@ -746,6 +793,8 @@ function renderSelbar(){
   el.classList.add("open");
 }
 $("#selbar").addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b) return;
+  if (b.dataset.sb==="bgUp"||b.dataset.sb==="bgDown"){ const r=cv.getBoundingClientRect(), [ax,ay]=s2w(r.width/2,r.height/2); bgScale(b.dataset.sb==="bgUp"?1.02:1/1.02,ax,ay); renderPanel(); }
+  if (b.dataset.sb==="bgDone"){ S.tool="select"; renderTools(); draw(); }
   if (b.dataset.sb==="detail") openSheet("token");
   if (b.dataset.sb==="unbind") unbindTpl(S.selTpl);
   if (b.dataset.sb==="deltpl" && canDeleteTpl(S.templates[S.selTpl])){ delTemplate(S.selTpl); S.selTpl=null; renderPanel(); }
@@ -767,6 +816,7 @@ const ICONS = {
   add:'<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4"/>',
   center:'<path d="M12 3v4M12 17v4M3 12h4M17 12h4" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/>',
   clear:'<path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2"/>',
+  bg:'<rect x="3" y="5" width="18" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 17l5-6 4 4 2-2 3 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="16" cy="9" r="1.6" fill="currentColor"/>',
 };
 const svg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg>`;
 function renderTools(){
@@ -775,6 +825,8 @@ function renderTools(){
   for (const t of T){ if(!t){ h+='<span class="divider"></span>'; continue; }
     h+=`<button class="tool" data-tool="${t[0]}" aria-pressed="${S.tool===t[0]}">${svg(t[0])}<span>${t[1]}</span>${t[2]?`<span class="sub num">${t[2]}</span>`:""}</button>`; }
   h+='<span class="divider"></span>';
+  if (S.tool==="bg" && !(S.isGM && S.cfg.bgId)) S.tool="select";
+  if (S.isGM && S.cfg.bgId) h+=`<button class="tool gmonly" data-tool="bg" aria-pressed="${S.tool==="bg"}">${svg("bg")}<span>底圖</span></button>`;
   if (S.isGM) for (const t of [["walls","牆壁"],["reveal","揭露區"]]) h+=`<button class="tool gmonly" data-tool="${t[0]}" aria-pressed="${S.tool===t[0]}">${svg(t[0])}<span>${t[1]}</span></button>`;
   h+=`<button class="tool${S.isGM?" gmonly":""}" data-act="add">${svg("add")}<span>${S.isGM?"新增棋子":"新增召喚"}</span></button>`;
   h+='<span class="divider"></span>';
@@ -787,7 +839,7 @@ $("#tools").addEventListener("click", e => {
   if (b.dataset.tool){
     const t=b.dataset.tool;
     if (t==="cone" && S.tool==="cone"){ S.coneAngle = S.coneAngle===90?60:S.coneAngle===60?53:90; toast(`錐形角度 ${S.coneAngle}°`); }
-    S.tool=t; if(t!=="ruler") S.ruler=null; renderTools(); draw(); return;
+    S.tool=t; if(t!=="ruler") S.ruler=null; if (t==="bg") toast("拖曳移動底圖，用 −/+ 或滑鼠滾輪縮放"); renderTools(); draw(); return;
   }
   const a=b.dataset.act;
   if (a==="add") addToken();
@@ -802,7 +854,9 @@ function fitView(){
   const r=cv.getBoundingClientRect(), {cols,rows}=S.cfg; if(!r.width) return;
   let s=clamp(Math.min((r.width-24)/cols,(r.height-24)/rows),8,90);
   if (s<30 && r.width<700) s=30; // 手機上不要縮到太小，可再用雙指縮放
-  S.view.s=s; S.view.x=(r.width-cols*s)/2; S.view.y=(r.height-rows*s)/2; draw();
+  S.view.s=s; // 放不下時從左上角開始看（長條地圖才會從頭開始）
+  S.view.x = cols*s+24>r.width ? 12 : (r.width-cols*s)/2;
+  S.view.y = rows*s+24>r.height ? 12 : (r.height-rows*s)/2; draw();
 }
 function addToken(){
   const r=cv.getBoundingClientRect(); let [wx,wy]=s2w(r.width/2,r.height/2);
@@ -824,7 +878,7 @@ $("#btnPanel").onclick=()=>{ $("#sheet").classList.contains("open") ? closeSheet
 $("#btnPreview").onclick=()=>{ S.preview=!S.preview; $("#btnPreview").setAttribute("aria-pressed",S.preview); visCache.key=null; draw(); };
 function openSheet(tab){ S.tab=tab||S.tab; $("#sheet").classList.add("open"); renderPanel(); }
 function closeSheet(){ $("#sheet").classList.remove("open"); }
-function tabsFor(){ const t=[["token","棋子"],["init","回合"],["players","認領"]]; if (S.isGM) t.push(["map","地圖"],["saves","存檔"]); return t; }
+function tabsFor(){ const t=[["token","棋子"],["init","回合"],["players","認領"],["music","音樂"]]; if (S.isGM) t.push(["map","地圖"],["saves","存檔"]); return t; }
 let panelDirty=false;
 function renderPanel(){
   if (!$("#sheet").classList.contains("open")) return;
@@ -834,7 +888,7 @@ function renderPanel(){
   const tabs=tabsFor(); if(!tabs.some(t=>t[0]===S.tab)) S.tab="token";
   $("#tabs").innerHTML = tabs.map(([k,n])=>`<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${n}</button>`).join("") + `<button class="close" aria-label="關閉面板" data-close>×</button>`;
   const body=$("#sheetBody");
-  body.innerHTML = S.tab==="token"?panelToken() : S.tab==="players"?panelPlayers() : S.tab==="init"?panelInit() : S.tab==="map"?panelMap() : panelSaves();
+  body.innerHTML = S.tab==="token"?panelToken() : S.tab==="players"?panelPlayers() : S.tab==="init"?panelInit() : S.tab==="map"?panelMap() : S.tab==="music"?panelMusic() : panelSaves();
 }
 $("#tabs").addEventListener("click", e => { const b=e.target.closest("button"); if(!b) return; if (b.dataset.close!==undefined) return closeSheet(); S.tab=b.dataset.tab; renderPanel(); });
 function onlineIds(){ return Object.entries(S.peers).filter(([id,p])=>id!==S.me && p && p.name).map(([id])=>id); }
@@ -937,10 +991,16 @@ function panelMap(){
   <h3>地圖底圖</h3>
   <div class="row"><input type="file" id="mBg" accept="image/*" aria-label="選擇底圖圖片"></div>
   <p class="hint">圖片會自動壓縮後存進房間。</p>
-  ${c.bgId?`<div class="row"><button class="btn" data-act="fitBg">依圖片比例調整高度</button><button class="btn warn" data-act="rmBg">移除底圖</button></div>`:""}
+  ${c.bgId?(()=>{ const b=bgFields(); return `<h3>底圖大小與位置</h3>
+  <div class="row"><label for="mBgW">底圖寬</label><input type="number" inputmode="decimal" class="num" id="mBgW" min="1" max="${MAX_GRID*4}" step="0.1" value="${r2(b.bgW)}"><span class="hint">格</span></div>
+  <p class="hint">底圖上如果畫了格線：數一下圖上橫向有幾格，填進「底圖寬」，格子就會一樣大，再拖曳對齊。</p>
+  <div class="row"><label for="mBgX">位移</label><span class="hint">X</span><input type="number" inputmode="decimal" class="num" id="mBgX" step="0.1" value="${r2(b.bgX)}"><span class="hint">Y</span><input type="number" inputmode="decimal" class="num" id="mBgY" step="0.1" value="${r2(b.bgY)}"></div>
+  <div class="row"><button class="btn gm" data-act="bgTool">在地圖上拖曳調整</button></div>
+  <div class="row"><button class="btn" data-act="bgFitW">等比鋪滿寬度</button><button class="btn" data-act="bgStretch">拉伸填滿格子</button></div>
+  <div class="row"><button class="btn" data-act="fitBg">格子高度配合圖片</button><button class="btn warn" data-act="rmBg">移除底圖</button></div>`; })():""}
   <h3>房間</h3>
   <div class="row"><input type="text" id="mTitle" value="${esc(c.title||"")}" maxlength="40" aria-label="地圖名稱"><button class="btn" data-act="saveTitle">改名</button></div>
-  ${S.online?`<p class="hint">房間代碼 <span class="code">${esc(S.room)}</span></p><div class="row"><button class="btn" data-act="changePw">更改 GM 密碼</button><button class="btn" data-act="leave">離開房間</button></div>`:""}`;
+  ${S.online?`<p class="hint">房間代碼 <span class="code">${esc(S.room)}</span></p><div class="row"><button class="btn" data-act="changePw">更改 GM 密碼</button><button class="btn" data-act="leave">離開房間</button></div><div class="row"><button class="btn warn" data-act="delRoom">刪除這個房間</button></div>`:""}`;
 }
 function panelSaves(){
   let h=`<p class="hint">地圖、棋子、範圍、回合都會自動保存，下次打開會在原處。這裡可以把目前戰場另存一份，之後隨時載回來。</p>
@@ -952,6 +1012,7 @@ function panelSaves(){
 
 const body=$("#sheetBody");
 body.addEventListener("focusout", ()=>{ setTimeout(()=>{ if (panelDirty) renderPanel(); }, 0); });
+body.addEventListener("input", e => { if (e.target.id==="muVolP"){ setVol(+e.target.value); const v=$("#muVol"); if(v) v.value=M.vol; } });
 body.addEventListener("change", e => {
   const id=e.target.id, t=S.sel&&S.tokens[S.sel];
   if (t){
@@ -966,6 +1027,11 @@ body.addEventListener("change", e => {
   if (id==="mFog") patchCfg({fog:e.target.checked});
   if (id==="mShare") patchCfg({shareVision:e.target.checked});
   if (id==="mBg") uploadBg(e.target.files[0]);
+  if (id==="muFile"){ uploadAudio(e.target.files[0]); e.target.value=""; }
+  if (id==="muVolP") renderMusicCtl();
+  if ((id==="mBgW"||id==="mBgX"||id==="mBgY") && bgImg){ const b=bgFields(), v=+e.target.value;
+    if (id==="mBgW" && v>0) patchCfg({...b, bgW:r2(clamp(v,1,MAX_GRID*4))});
+    if (id!=="mBgW" && Number.isFinite(v)) patchCfg({...b, [id==="mBgX"?"bgX":"bgY"]:r2(clamp(v,-MAX_GRID*4,MAX_GRID*4))}); }
   if (e.target.dataset.ini!==undefined){
     const i=+e.target.dataset.ini, c=S.combat, order=[...(c.order||[])], en=order[i];
     if (en && canEditEntry(en)){ const v=e.target.value===""?null:+e.target.value; const n={...en}; if (Number.isFinite(v)) n.init=v; else delete n.init; order[i]=n; putCombat({...c, order}); }
@@ -974,6 +1040,7 @@ body.addEventListener("change", e => {
 body.addEventListener("click", async e => {
   const b=e.target.closest("button[data-act]"); if(!b) return;
   const a=b.dataset.act, id=b.dataset.id;
+  if (a.startsWith("mu")){ musicPanelClick(a,id); return; }
   if (a==="delTpl"){ delTemplate(S.selTpl); S.selTpl=null; renderPanel(); }
   if (a==="delTok"){ const tid=S.sel; if(!canDeleteToken(S.tokens[tid])) return; deleteTokenFull(tid); renderPanel(); }
   if (a==="unbindTpl") unbindTpl(S.selTpl);
@@ -996,11 +1063,19 @@ body.addEventListener("click", async e => {
   if (a==="applyGrid") applyGrid();
   if (a==="clearWalls") patchCfg({walls:""});
   if (a==="clearReveal") patchCfg({reveal:""});
-  if (a==="rmBg"){ patchCfg({bgId:null}); setBgData(null); renderPanel(); }
-  if (a==="fitBg" && bgImg){ const rows=clamp(Math.round(S.cfg.cols*bgImg.naturalHeight/bgImg.naturalWidth),4,MAX_GRID); resizeGrid(S.cfg.cols,rows); fitView(); renderPanel(); toast(`高度設為 ${rows} 格`); }
+  if (a==="rmBg"){ patchCfg({bgId:null,bgX:null,bgY:null,bgW:null}); setBgData(null); renderTools(); renderPanel(); }
+  if (a==="fitBg" && bgImg){ const b=bgFields(), rows=clamp(Math.ceil(b.bgY+b.bgW*bgImg.naturalHeight/bgImg.naturalWidth-0.05),4,MAX_GRID); resizeGrid(S.cfg.cols,rows); fitView(); renderPanel(); toast(`高度設為 ${rows} 格`); }
+  if (a==="bgTool"){ S.tool="bg"; renderTools(); if (window.innerWidth<820) closeSheet(); draw(); toast("拖曳移動底圖，用 −/+ 或滑鼠滾輪縮放"); }
+  if (a==="bgFitW" && bgImg){ patchCfg({bgX:0,bgY:0,bgW:S.cfg.cols}); renderPanel(); }
+  if (a==="bgStretch"){ patchCfg({bgX:null,bgY:null,bgW:null}); renderPanel(); }
   if (a==="saveTitle"){ const v=$("#mTitle").value.trim().slice(0,40)||"戰術地圖"; patchCfg({title:v}); if(S.online) w(ref(`${R}/meta/title`).set(v)); applyTitle(); toast("已改名"); }
   if (a==="changePw") changeGmPw();
   if (a==="leave") goHome();
+  if (a==="delRoom" && S.online && S.isGM){
+    if (!await confirmBox("刪除房間",`房間 ${S.room} 的地圖、棋子、存檔、音樂都會永久刪除，無法復原。在線的玩家會被送回首頁。`,"永久刪除")) return;
+    try{ S.deleting=true; await fb.ref(`rooms/${S.room}`).remove(); dropRecent(S.room); lsSet("bm-gm-"+S.room,null); goHome(); }
+    catch(err){ S.deleting=false; onWriteError(err); }
+  }
   if (a==="save") saveSnapshot();
   if (a==="load") loadSnapshot(id);
   if (a==="delSave"){ if(!await confirmBox("刪除存檔","刪除後無法復原。","刪除")) return; w(ref(`${R}/saves/${id}`).remove()); S.saves=S.saves.filter(s=>s.id!==id); renderPanel(); }
@@ -1015,7 +1090,7 @@ function resizeGrid(cols,rows){
   for (const [id,t] of Object.entries(S.tokens)){ const f=FOOT[t.size]||1; if (t.x+f>cols||t.y+f>rows) patchToken(id,{x:clamp(t.x,0,cols-f),y:clamp(t.y,0,rows-f)}); }
 }
 function applyGrid(){
-  const cols=clamp(Math.round(+$("#mCols").value||24),4,MAX_GRID), rows=clamp(Math.round(+$("#mRows").value||16),4,MAX_GRID), meters=clamp(+$("#mMeters").value||2,0.5,100);
+  const cols=clamp(Math.round(+$("#mCols").value||12),4,MAX_GRID), rows=clamp(Math.round(+$("#mRows").value||40),4,MAX_GRID), meters=clamp(+$("#mMeters").value||2,0.5,100);
   if (meters!==S.cfg.meters) patchCfg({meters});
   if (cols!==S.cfg.cols||rows!==S.cfg.rows) resizeGrid(cols,rows);
   fitView(); renderPanel(); toast(`格子 ${cols}×${rows}，每格 ${meters} 米`);
@@ -1029,8 +1104,278 @@ async function uploadBg(file){
     for (let q=0.82; ; ){ const k=Math.min(1,max/Math.max(im.naturalWidth,im.naturalHeight)); const c=document.createElement("canvas"); c.width=Math.round(im.naturalWidth*k); c.height=Math.round(im.naturalHeight*k); c.getContext("2d").drawImage(im,0,0,c.width,c.height); data=c.toDataURL("image/jpeg",q); if (data.length<1.8e6 || max<800) break; max=Math.round(max*0.8); q=Math.max(0.6,q-0.06); }
     URL.revokeObjectURL(url);
     const id=uid(); await ref(`${R}/images/${id}`).set({data, at:Date.now()});
-    patchCfg({bgId:id}); renderPanel(); toast("底圖已更新");
+    patchCfg({bgId:id, bgX:0, bgY:0, bgW:S.cfg.cols}); renderTools(); renderPanel(); toast("底圖已更新：可用「底圖」工具拖曳、縮放對齊");
   }catch(err){ onWriteError(err); }
+}
+
+/* ============ 音樂 ============ */
+const KIND_NAME = {youtube:"YouTube", bilibili:"Bilibili", spotify:"Spotify", audio:"網址", file:"上傳", local:"本機"};
+const AUDIO_MAX = 20*1024*1024, CHUNK = 384*1024;
+const M = { state:null, off:0, vol:clamp(+(ls("bm-vol")??70),0,100), muted:ls("bm-mute")==="1", min:ls("bm-mumin")==="1",
+  key:"", el:null, yt:null, ytReady:false, sp:null, spPaused:true, spStarted:false, spPos:0, spDur:0, blocked:false, loading:"", urls:{}, playlist:{}, seeking:false };
+const mNow = () => Date.now()+M.off;
+function mPos(st){ if(!st) return 0; return Math.max(0, st.playing ? (mNow()-(+st.t0||0))/1000 : (+st.pos||0)); }
+function mDur(){ const k=M.state&&M.state.kind;
+  if (M.el && (k==="audio"||k==="file"||k==="local")) return isFinite(M.el.duration)?M.el.duration:0;
+  if (k==="youtube" && M.ytReady) return M.yt.getDuration()||0;
+  if (k==="spotify") return M.spDur||0;
+  return 0; }
+function mCur(){ const st=M.state; if(!st) return 0; let p=mPos(st); const d=mDur(); if (d>0){ p = st.loop ? p%d : Math.min(p,d); } return p; }
+const fmtT = t => { t=Math.max(0,Math.floor(t||0)); const h=Math.floor(t/3600), m=Math.floor(t%3600/60), s=t%60; return (h?h+":"+String(m).padStart(2,"0"):m)+":"+String(s).padStart(2,"0"); };
+
+function parseMusicUrl(raw){
+  raw=(raw||"").trim(); if (!raw) return {err:"請先貼上網址"};
+  let m=/^spotify:(track|album|playlist|episode|show|artist):([A-Za-z0-9]+)$/.exec(raw);
+  if (m) return {kind:"spotify", src:`${m[1]}/${m[2]}`};
+  let u; try{ u=new URL(raw); }catch{ return {err:"網址格式不對，要以 https:// 開頭"}; }
+  if (!/^https?:$/.test(u.protocol)) return {err:"只支援 http / https 網址"};
+  const h=u.hostname.toLowerCase().replace(/^(www|m|music)\./,"");
+  if (h==="youtu.be"){ const v=u.pathname.slice(1).split("/")[0]; if(!v) return {err:"找不到 YouTube 影片 ID"}; const p=new URLSearchParams({v}); if(u.searchParams.get("list")) p.set("list",u.searchParams.get("list")); return {kind:"youtube", src:p.toString()}; }
+  if (h==="youtube.com"||h.endsWith(".youtube.com")||h==="youtube-nocookie.com"){
+    const v=u.searchParams.get("v") || (/\/(?:shorts|embed|live|v)\/([\w-]{11})/.exec(u.pathname)||[])[1] || "", list=u.searchParams.get("list")||"";
+    if (!v && !list) return {err:"找不到 YouTube 影片或播放清單 ID"};
+    const p=new URLSearchParams(); if(v) p.set("v",v); if(list) p.set("list",list); return {kind:"youtube", src:p.toString()}; }
+  if (h==="b23.tv") return {err:"Bilibili 短網址無法解析，請在瀏覽器打開後複製完整的 bilibili.com/video/BV… 網址"};
+  if (h.endsWith("bilibili.com")){
+    const mm=/\/video\/(BV[0-9A-Za-z]{10}|av\d+)/i.exec(u.pathname); if(!mm) return {err:"找不到 Bilibili 影片編號（BV…）"};
+    const p=new URLSearchParams(); if (/^av/i.test(mm[1])) p.set("aid",mm[1].slice(2)); else p.set("bvid",mm[1]); p.set("p",u.searchParams.get("p")||"1"); return {kind:"bilibili", src:p.toString()}; }
+  if (h==="open.spotify.com"||h==="play.spotify.com"){
+    const mm=/\/(track|album|playlist|episode|show|artist)\/([A-Za-z0-9]+)/.exec(u.pathname); if(!mm) return {err:"找不到 Spotify 歌曲 / 專輯 / 歌單 ID"};
+    return {kind:"spotify", src:`${mm[1]}/${mm[2]}`}; }
+  if (h==="dropbox.com"){ u.searchParams.delete("dl"); u.searchParams.set("raw","1"); }
+  return {kind:"audio", src:u.toString()};
+}
+function guessTitle(p){ if (p.kind==="audio"){ try{ const n=decodeURIComponent(new URL(p.src).pathname.split("/").pop()||""); if(n) return n.replace(/\.[a-z0-9]{2,4}$/i,""); }catch{} return "音樂連結"; }
+  if (p.kind==="spotify") return "Spotify "+({track:"歌曲",album:"專輯",playlist:"歌單",episode:"單集",show:"節目",artist:"歌手"}[p.src.split("/")[0]]||"");
+  if (p.kind==="bilibili") return "Bilibili "+(new URLSearchParams(p.src).get("bvid")||"影片");
+  if (p.kind==="youtube") return new URLSearchParams(p.src).get("v") ? "YouTube 影片" : "YouTube 播放清單";
+  return "音樂"; }
+
+/* --- 寫入（GM） --- */
+function mSet(st){ M.state=st; w(ref(`${R}/music`).set(st)); applyMusic(); if (S.tab==="music") renderPanel(); }
+function mLoad(tr){ const loop = M.state ? !!M.state.loop : true;
+  M.min=false; lsSet("bm-mumin",null);
+  mSet({kind:tr.kind, src:tr.src, title:tr.title||"", playing:true, t0:mNow(), pos:0, loop, by:S.me}); }
+function mPlay(){ const st=M.state; if(!st) return; const p=mCur(); mSet({...st, playing:true, t0:mNow()-p*1000}); }
+function mPause(){ const st=M.state; if(!st) return; mSet({...st, playing:false, pos:r2(mCur())}); }
+function mSeek(p){ const st=M.state; if(!st) return; mSet({...st, pos:r2(p), t0:mNow()-p*1000}); }
+function mStop(){ M.state=null; w(ref(`${R}/music`).remove()); applyMusic(); if (S.tab==="music") renderPanel(); }
+
+/* --- 播放引擎（每個人依共享狀態各自播放） --- */
+function teardown(){
+  if (M.el){ M.el.pause(); M.el.removeAttribute("src"); try{ M.el.load(); }catch{} M.el=null; }
+  if (M.yt){ try{ M.yt.destroy(); }catch{} M.yt=null; M.ytReady=false; }
+  if (M.sp){ try{ M.sp.destroy(); }catch{} M.sp=null; }
+  M.spPaused=true; M.spStarted=false; M.spPos=0; M.spDur=0; M.blocked=false; M.loading="";
+  const e=$("#muEmbed"); e.innerHTML=""; e.className=""; delete e.dataset.s;
+}
+function stopMusic(){ M.state=null; M.key=""; teardown(); renderMusic(); }
+function loadScript(src, readyName){
+  loadScript.p=loadScript.p||{}; if (loadScript.p[src]) return loadScript.p[src];
+  return loadScript.p[src]=new Promise(res=>{ const prev=window[readyName]; window[readyName]=a=>{ try{ prev&&prev(a); }catch{} res(a||true); };
+    const s=document.createElement("script"); s.src=src; s.async=true; s.onerror=()=>{ delete loadScript.p[src]; res(null); }; document.head.appendChild(s); });
+}
+async function fileUrl(id){
+  if (M.urls[id]) return M.urls[id];
+  const meta=(await ref(`${R}/audio/${id}`).once("value")).val(); if(!meta) throw new Error("missing");
+  const parts=(await ref(`${R}/audioChunks/${id}`).once("value")).val()||{};
+  const n=+meta.n||Object.keys(parts).length, bufs=[];
+  for (let i=0;i<n;i++){ const b=atob(parts[i]||""); const u8=new Uint8Array(b.length); for(let j=0;j<b.length;j++) u8[j]=b.charCodeAt(j); bufs.push(u8); }
+  return M.urls[id]=URL.createObjectURL(new Blob(bufs,{type:meta.type||"audio/mpeg"}));
+}
+function applyMusic(){
+  const st=M.state, key=st?st.kind+"|"+st.src:"";
+  if (key!==M.key){ M.key=key; teardown(); if (st) build(st, key); }
+  syncNow(); renderMusic();
+}
+async function build(st, key){
+  const box=$("#muEmbed"), still=()=>M.key===key;
+  if (st.kind==="audio"||st.kind==="file"||st.kind==="local"){
+    let src=st.src;
+    if (st.kind==="file"){ M.loading="下載音樂中…"; renderMusicCtl(); try{ src=await fileUrl(st.src); }catch{ if(still()){ M.loading="音樂檔讀取失敗"; renderMusicCtl(); } return; } if(!still()) return; M.loading=""; }
+    if (st.kind==="local"){ src=M.urls[st.src]; if(!src){ M.loading="單機模式上傳的檔案重新整理後就失效了，請重新選擇"; renderMusicCtl(); return; } }
+    const a=new Audio(); a.preload="auto"; a.src=src; M.el=a;
+    a.addEventListener("loadedmetadata", ()=>{ syncNow(); renderMusicCtl(); });
+    a.addEventListener("error", ()=>{ if(M.el===a){ M.loading="無法播放這個連結（要是 mp3 / ogg / m4a 等音檔的直接連結）"; renderMusicCtl(); } });
+    a.addEventListener("ended", ()=>{ if (M.el===a && M.state && M.state.loop){ a.currentTime=0; tryPlay(()=>a.play()); } });
+    applyVol(); syncNow(); renderMusicCtl(); return;
+  }
+  if (st.kind==="youtube"){
+    box.className="vid"; box.innerHTML="<div></div>"; M.loading="載入 YouTube…"; renderMusicCtl();
+    await loadScript("https://www.youtube.com/iframe_api","onYouTubeIframeAPIReady"); if(!still()) return;
+    if (!window.YT || !YT.Player){ M.loading="YouTube 載入失敗，請檢查網路"; renderMusicCtl(); return; }
+    const q=new URLSearchParams(st.src), v=q.get("v"), list=q.get("list");
+    const pv={playsinline:1, rel:0, origin:location.origin}; if (list){ pv.listType="playlist"; pv.list=list; }
+    M.yt=new YT.Player(box.firstChild,{width:"100%",height:"100%",videoId:v||undefined,playerVars:pv,events:{
+      onReady:()=>{ if(!still()) return; M.ytReady=true; M.loading=""; applyVol(); syncNow(); renderMusicCtl(); fillTitle(()=>{ try{ return M.yt.getVideoData().title; }catch{ return ""; } }); },
+      onStateChange:e=>{ if (!still()) return;
+        if (e.data===0 && M.state && M.state.loop){ if (list) M.yt.playVideoAt(0); else { M.yt.seekTo(0,true); M.yt.playVideo(); } }
+        if (e.data===1 && M.blocked){ M.blocked=false; renderMusicCtl(); } },
+      onError:()=>{ if(still()){ M.loading="這部影片不允許嵌入播放，請換一部"; renderMusicCtl(); } } }});
+    return;
+  }
+  if (st.kind==="bilibili"){ box.className="vid"; syncBili(true); return; }
+  if (st.kind==="spotify"){
+    box.className="sp"; box.innerHTML="<div></div>"; M.loading="載入 Spotify…"; renderMusicCtl();
+    const API=await loadScript("https://open.spotify.com/embed/iframe-api/v1","onSpotifyIframeApiReady"); if(!still()) return;
+    if (!API || !API.createController){ box.innerHTML=`<iframe src="https://open.spotify.com/embed/${esc(st.src)}" allow="autoplay; clipboard-write; encrypted-media; fullscreen"></iframe>`; M.loading=""; renderMusicCtl(); return; }
+    API.createController(box.firstChild,{uri:"spotify:"+st.src.replace("/",":"), width:"100%", height:152}, c=>{
+      if(!still()){ try{c.destroy();}catch{} return; } M.sp=c; M.loading=""; renderMusicCtl();
+      c.addListener("playback_update", e=>{ const d=e.data||{}; M.spPaused=!!d.isPaused; M.spPos=(d.position||0)/1000; M.spDur=(d.duration||0)/1000; if(!d.isPaused && M.blocked){ M.blocked=false; renderMusicCtl(); } });
+      c.addListener("ready", ()=>syncNow());
+    });
+  }
+}
+function fillTitle(get){ // GM 端補上自動抓到的標題
+  if (!S.isGM || !M.state || M.state.title) return; const t=(get()||"").slice(0,80); if(!t) return;
+  M.state={...M.state,title:t}; w(ref(`${R}/music/title`).set(t)); renderMusic();
+  for (const [id,p] of Object.entries(M.playlist)) if (p.src===M.state.src && !p.title) w(ref(`${R}/playlist/${id}/title`).set(t));
+  if (S.tab==="music") renderPanel();
+}
+function syncBili(force){
+  const st=M.state, box=$("#muEmbed"); if(!st || st.kind!=="bilibili") return;
+  const want = st.playing ? "on" : "off";
+  if (!force && box.dataset.s===want) return; box.dataset.s=want;
+  if (!st.playing){ box.innerHTML=`<div class="ph">已暫停</div>`; return; }
+  const q=new URLSearchParams(st.src); q.set("autoplay","1"); q.set("high_quality","1"); q.set("danmaku","0"); const t=Math.floor(mPos(st)); if (t>2) q.set("t",t);
+  box.innerHTML=`<iframe src="https://player.bilibili.com/player.html?${q}" allow="autoplay; fullscreen; encrypted-media" allowfullscreen scrolling="no"></iframe>`;
+}
+function tryPlay(fn){ try{ const r=fn(); if (r && r.then) r.then(()=>{ if(M.blocked){ M.blocked=false; renderMusicCtl(); } }).catch(err=>{ if(err && err.name==="NotAllowedError" && !M.blocked){ M.blocked=true; renderMusicCtl(); } }); }catch{} }
+function syncNow(){
+  const st=M.state; if (!st) return;
+  const k=st.kind, p=mCur(), d=mDur();
+  const ended = st.playing && !st.loop && d>0 && mPos(st)>=d;
+  if (M.el){ const a=M.el;
+    if (st.playing && !ended){ if (a.readyState>=1 && Math.abs(a.currentTime-p)>1.5) try{ a.currentTime=p; }catch{} if (a.paused) tryPlay(()=>a.play()); }
+    else { if (!a.paused) a.pause(); if (!st.playing && a.readyState>=1 && Math.abs(a.currentTime-p)>1.5) try{ a.currentTime=p; }catch{} }
+  }
+  if (k==="youtube" && M.ytReady){ const y=M.yt, ps=y.getPlayerState(), list=new URLSearchParams(st.src).get("list");
+    if (st.playing && !ended){
+      if (!list && Math.abs(y.getCurrentTime()-p)>2) y.seekTo(p,true);
+      if (ps!==1 && ps!==3){ y.playVideo(); setTimeout(()=>{ if (M.yt===y && M.state && M.state.playing && ![1,3].includes(y.getPlayerState()) && !M.blocked){ M.blocked=true; renderMusicCtl(); } },2000); } }
+    else { if (ps===1||ps===3) y.pauseVideo(); if (!st.playing && !list && Math.abs(y.getCurrentTime()-p)>2) y.seekTo(p,true); }
+  }
+  if (k==="spotify" && M.sp){ const c=M.sp;
+    if (st.playing){ if (M.spPaused){ if (M.spStarted) c.resume(); else { c.play(); M.spStarted=true; } } if (M.spDur && st.src.startsWith("track") && Math.abs(M.spPos-p)>3) c.seek(p); }
+    else if (!M.spPaused) c.pause();
+  }
+  if (k==="bilibili") syncBili(false);
+}
+function applyVol(){ const v=M.muted?0:M.vol/100;
+  if (M.el) M.el.volume=v;
+  if (M.yt && M.ytReady){ M.yt.setVolume(M.vol); if (M.muted) M.yt.mute(); else M.yt.unMute(); } }
+function setVol(v){ M.vol=clamp(Math.round(v),0,100); lsSet("bm-vol",String(M.vol)); if (M.vol>0 && M.muted){ M.muted=false; lsSet("bm-mute",null); } applyVol(); }
+function toggleMute(){ M.muted=!M.muted; lsSet("bm-mute",M.muted?"1":null); applyVol(); renderMusicCtl(); }
+function unlockAudio(){ const st=M.state; M.blocked=false; if(!st) return;
+  if (st.playing){
+    if (M.el) tryPlay(()=>M.el.play());
+    if (M.yt && M.ytReady) M.yt.playVideo();
+    if (M.sp){ M.sp.play(); M.spStarted=true; }
+    if (st.kind==="bilibili") syncBili(true);
+  }
+  setTimeout(syncNow,400); renderMusicCtl(); }
+setInterval(()=>{ if (!M.state) return; if (M.state.playing) syncNow();
+  const t=$("#muTime"); if (t && !M.seeking) t.textContent = fmtT(mCur())+(mDur()?" / "+fmtT(mDur()):"");
+  const sk=$("#muSeek"); if (sk && !M.seeking){ sk.max=Math.max(1,Math.floor(mDur())); sk.value=Math.floor(mCur()); } }, 1000);
+
+/* --- 播放器卡片 --- */
+function renderMusic(){
+  const box=$("#music"), st=M.state;
+  box.hidden = !st && !S.isGM;
+  box.classList.toggle("min", M.min || !st);
+  $("#muFab").classList.toggle("on", !!(st && st.playing));
+  $("#muFab").setAttribute("aria-expanded", String(!!st && !M.min));
+  $("#muTitle").textContent = st ? (st.title || guessTitle(st)) : "";
+  $("#muKind").textContent = st ? KIND_NAME[st.kind]||"" : "";
+  renderMusicCtl();
+}
+function renderMusicCtl(){
+  const st=M.state, el=$("#muCtl"); if (!st){ el.innerHTML=""; return; }
+  const seekable = st.kind!=="bilibili" && !(st.kind==="youtube" && new URLSearchParams(st.src).get("list")) && !(st.kind==="spotify" && !st.src.startsWith("track"));
+  const tm = fmtT(mCur())+(mDur()?" / "+fmtT(mDur()):"");
+  let h="";
+  if (M.loading) h+=`<p class="hint" style="margin:0">${esc(M.loading)}</p>`;
+  if (M.blocked) h+=`<button class="mu-unlock" data-mu="unlock">🔊 瀏覽器擋住了自動播放，點這裡開始聽</button>`;
+  if (st.kind==="bilibili" || st.kind==="spotify") h+=`<p class="hint" style="margin:0">${st.kind==="spotify"?"沒登入 Spotify 只能聽 30 秒試聽。":""}沒聲音的話，按播放器裡的播放鍵。</p>`;
+  if (S.isGM){
+    h+=`<div class="row"><button class="btn ${st.playing?"":"gm"}" data-mu="toggle" aria-label="${st.playing?"暫停":"播放"}">${st.playing?"❚❚":"▶"}</button><button class="btn" data-mu="restart" aria-label="從頭播放">⏮</button><button class="btn" data-mu="loop" aria-pressed="${!!st.loop}" style="${st.loop?"background:var(--ink);color:var(--paper)":""}" aria-label="循環播放" title="循環播放">🔁</button><button class="btn warn" data-mu="stop" aria-label="停止並清除">⏹</button><span style="flex:1"></span><span id="muTime" class="num">${tm}</span></div>`;
+    if (seekable) h+=`<div class="row"><input type="range" id="muSeek" min="0" max="${Math.max(1,Math.floor(mDur()))}" value="${Math.floor(mCur())}" aria-label="播放進度"></div>`;
+  } else h+=`<div class="row"><span class="hint" style="margin:0">${st.playing?"GM 正在播放":"GM 已暫停"}</span><span style="flex:1"></span><span id="muTime" class="num">${tm}</span></div>`;
+  h+=`<div class="row"><button class="btn" data-mu="mute" aria-label="${M.muted?"取消靜音":"靜音"}">${M.muted?"🔇":"🔊"}</button><input type="range" id="muVol" min="0" max="100" value="${M.muted?0:M.vol}" aria-label="我的音量"></div>`;
+  el.innerHTML=h;
+}
+$("#muFab").onclick=()=>{ if (!M.state){ openSheet("music"); return; } M.min=!M.min; lsSet("bm-mumin",M.min?"1":null); if (M.blocked) unlockAudio(); renderMusic(); };
+$("#muMin").onclick=()=>{ M.min=true; lsSet("bm-mumin","1"); renderMusic(); };
+$("#muCtl").addEventListener("click", e=>{ const b=e.target.closest("button[data-mu]"); if(!b) return; const a=b.dataset.mu;
+  if (a==="unlock") unlockAudio();
+  if (a==="mute") toggleMute();
+  if (!S.isGM || !M.state) return;
+  if (a==="toggle") (M.state.playing?mPause:mPlay)();
+  if (a==="restart") mSeek(0);
+  if (a==="loop") mSet({...M.state, loop:!M.state.loop});
+  if (a==="stop") mStop();
+});
+$("#muCtl").addEventListener("input", e=>{ if (e.target.id==="muVol") setVol(+e.target.value); if (e.target.id==="muSeek"){ M.seeking=true; const t=$("#muTime"); if(t) t.textContent=fmtT(+e.target.value); } });
+$("#muCtl").addEventListener("change", e=>{ if (e.target.id==="muSeek"){ M.seeking=false; if (S.isGM) mSeek(+e.target.value); } if (e.target.id==="muVol") renderMusicCtl(); });
+
+/* --- 面板 --- */
+function panelMusic(){
+  const st=M.state;
+  let h=`<h3>正在播放</h3>`;
+  h+= st ? `<div class="item"><span class="nm">${esc(st.title||guessTitle(st))}<br><span class="meta">${esc(KIND_NAME[st.kind]||"")} · ${st.playing?"播放中":"已暫停"}${st.loop?" · 循環":""}</span></span>${S.isGM?`<button class="btn" data-act="muToggle">${st.playing?"暫停":"播放"}</button>`:""}</div>` : `<p class="empty">${S.isGM?"還沒播放音樂。":"GM 還沒播放音樂。"}</p>`;
+  h+=`<div class="row"><label for="muVolP">我的音量</label><input type="range" id="muVolP" min="0" max="100" value="${M.muted?0:M.vol}"></div><p class="hint">音量只影響你自己這台裝置。Bilibili / Spotify 請用播放器裡的音量。</p>`;
+  if (!S.isGM) return h;
+  h+=`<h3>播放網址</h3>
+  <label class="fld"><span>YouTube、Bilibili、Spotify，或 mp3 等音檔直連</span><input type="url" id="muUrl" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off"></label>
+  <label class="fld"><span>名稱（可留空）</span><input type="text" id="muName" maxlength="60" placeholder="例如：戰鬥 BGM"></label>
+  <div class="row"><button class="btn gm" data-act="muPlayUrl">立即播放</button><button class="btn" data-act="muAddUrl">加入清單</button></div>
+  <h3>上傳音樂檔</h3>
+  <div class="row"><input type="file" id="muFile" accept="audio/*,.mp3,.m4a,.ogg,.wav,.flac,.aac,.opus" aria-label="選擇音樂檔"></div>
+  <p class="hint">${S.online?"上限 20 MB，會存進房間讓所有玩家下載播放（佔用 Firebase 空間與流量，建議用 mp3 / m4a）。":"單機模式：檔案只在這次開啟期間有效，重新整理後要重選。"}</p>`;
+  const pl=Object.entries(M.playlist).sort((a,b)=>(a[1].at||0)-(b[1].at||0));
+  h+=`<h3>播放清單</h3>`;
+  h+= pl.length ? `<div class="list">`+pl.map(([id,p])=>{ const on=st&&st.kind===p.kind&&st.src===p.src; return `<div class="item" style="${on?"border:2px solid var(--brass)":""}"><span class="nm">${esc(p.title||guessTitle(p))}<br><span class="meta">${esc(KIND_NAME[p.kind]||"")}${p.size?` · ${(p.size/1048576).toFixed(1)} MB`:""}</span></span><button class="btn ${on?"":"primary"}" data-act="muPlayItem" data-id="${id}">${on?"重播":"播放"}</button><button class="btn" data-act="muRenameItem" data-id="${id}">改名</button><button class="btn warn" data-act="muDelItem" data-id="${id}" aria-label="刪除">刪</button></div>`; }).join("")+`</div>` : `<p class="empty">清單是空的。把常用的 BGM 加進來，跑團時一鍵切換。</p>`;
+  return h;
+}
+async function musicPanelClick(a, id){
+  if (!S.isGM) return;
+  if (a==="muToggle" && M.state) (M.state.playing?mPause:mPlay)();
+  if (a==="muPlayUrl"||a==="muAddUrl"){
+    const p=parseMusicUrl($("#muUrl").value); if (p.err){ toast(p.err); return; }
+    const title=$("#muName").value.trim().slice(0,60);
+    if (a==="muAddUrl"){ const nid=uid(); M.playlist[nid]={kind:p.kind, src:p.src, title, at:Date.now()}; w(ref(`${R}/playlist/${nid}`).set(M.playlist[nid])); toast("已加入清單"); }
+    else mLoad({...p,title});
+    $("#muUrl").value=""; $("#muName").value=""; renderPanel();
+  }
+  if (a==="muPlayItem"){ const p=M.playlist[id]; if (!p) return; if (M.state && M.state.kind===p.kind && M.state.src===p.src) mSeek(0); else mLoad(p); }
+  if (a==="muRenameItem"){ const p=M.playlist[id]; if(!p) return; const r=await dialog({title:"改名", fields:[{id:"t",label:"名稱",value:p.title||"",max:60}]}); if(!r) return;
+    p.title=r.t||""; w(ref(`${R}/playlist/${id}/title`).set(p.title));
+    if (M.state && M.state.src===p.src){ M.state={...M.state,title:p.title}; w(ref(`${R}/music/title`).set(p.title)); renderMusic(); } renderPanel(); }
+  if (a==="muDelItem"){ const p=M.playlist[id]; if(!p) return;
+    if (!await confirmBox("從清單刪除",`刪除「${p.title||guessTitle(p)}」？${p.kind==="file"?"上傳的音樂檔也會一起刪除。":""}`,"刪除")) return;
+    if (M.state && M.state.kind===p.kind && M.state.src===p.src) mStop();
+    delete M.playlist[id]; w(ref(`${R}/playlist/${id}`).remove());
+    if (p.kind==="file"){ w(ref(`${R}/audio/${p.src}`).remove()); w(ref(`${R}/audioChunks/${p.src}`).remove()); }
+    renderPanel();
+  }
+}
+async function uploadAudio(file){
+  if (!file || !S.isGM) return;
+  if (file.size>AUDIO_MAX){ toast(`檔案 ${(file.size/1048576).toFixed(1)} MB 太大，上限 20 MB`); return; }
+  const title=file.name.replace(/\.[a-z0-9]{2,5}$/i,"").slice(0,60);
+  if (!S.online){ const key="L"+uid(); M.urls[key]=URL.createObjectURL(file); mLoad({kind:"local", src:key, title}); return; }
+  try{
+    const buf=new Uint8Array(await file.arrayBuffer()), n=Math.ceil(buf.length/CHUNK), id=uid();
+    for (let i=0;i<n;i++){
+      const part=buf.subarray(i*CHUNK,(i+1)*CHUNK); let bin=""; for (let j=0;j<part.length;j+=8192) bin+=String.fromCharCode.apply(null, part.subarray(j,j+8192));
+      status(`上傳音樂 ${Math.round(i/n*100)}%`); await ref(`${R}/audioChunks/${id}/${i}`).set(btoa(bin));
+    }
+    await ref(`${R}/audio/${id}`).set({name:file.name.slice(0,120), type:file.type||"audio/mpeg", size:file.size, n, at:Date.now()});
+    status(null);
+    M.urls[id]=URL.createObjectURL(file);
+    const pid=uid(); M.playlist[pid]={kind:"file", src:id, title, size:file.size, at:Date.now()}; w(ref(`${R}/playlist/${pid}`).set(M.playlist[pid]));
+    mLoad({kind:"file", src:id, title}); toast("已上傳並開始播放");
+  }catch(err){ status(null); onWriteError(err); }
 }
 
 /* ============ 認領 ============ */
@@ -1115,6 +1460,7 @@ function setRole(){
 function renderAll(){ renderTools(); renderPanel(); updateHud(); draw(); }
 function roomUrl(code){ const u=new URL(location.href); u.search=""; u.hash=""; if (code) u.searchParams.set("room",code); if (!FIREBASE_DB_URL && DB_URL) u.searchParams.set("db",DB_URL); return u.toString(); }
 function goHome(){ location.href=roomUrl(""); }
+function dropRecent(code){ let r=[]; try{ r=JSON.parse(ls("bm-recent")||"[]"); }catch{} lsSet("bm-recent",JSON.stringify(r.filter(x=>x.code!==code))); }
 function addRecent(code,title){ let r=[]; try{ r=JSON.parse(ls("bm-recent")||"[]"); }catch{} r=[{code,title,at:Date.now()},...r.filter(x=>x.code!==code)].slice(0,8); lsSet("bm-recent",JSON.stringify(r)); }
 $("#btnInvite").onclick=async()=>{
   const url=roomUrl(S.room);
@@ -1167,7 +1513,8 @@ function enterAs(gm){
   pr.set({name:S.myName||"?", role:gm?"gm":"player", at:Date.now()}).catch(()=>{});
   pr.onDisconnect().remove();
   if (gm) startSaves();
-  visCache.key=null; selbarKey="x"; setRole(); renderAll();
+  visCache.key=null; selbarKey="x"; setRole(); renderAll(); renderMusic();
+  if (M.state && M.state.playing) unlockAudio();
   if (!gm){ const mine=Object.entries(S.tokens).find(([,t])=>t.ownerId===S.me&&!isCreator(t)) || Object.entries(S.tokens).find(([,t])=>t.ownerId===S.me);
     if (mine) focusToken(mine[0]); else openSheet("players"); }
 }
@@ -1249,7 +1596,10 @@ function subscribeRoom(){
     if (S.tokensReady && S.isGM) pruneCombat();
     updateHud(); renderPanel(); draw(); if (f4){ f4=false; done(); }
   });
+  listen(`${R}/music`, v=>{ M.state = v && v.kind && v.src ? v : null; applyMusic(); if (S.tab==="music") renderPanel(); });
+  listen(`${R}/playlist`, v=>{ M.playlist=v||{}; if (S.tab==="music") renderPanel(); });
   if (S.online){
+    fb.ref(".info/serverTimeOffset").on("value", s=>{ M.off=+s.val()||0; });
     let peerKey="";
     listen(`${R}/presence`, v=>{ S.peers=v||{}; draw(); const k=Object.entries(S.peers).map(([id,p])=>id+":"+(p&&p.name)).sort().join("|"); if (k!==peerKey){ peerKey=k; renderPanel(); } });
     fb.ref(".info/connected").on("value", s=>{ if (s.val()===false && !f1) status("連線中斷，重新連線中…"); else if (s.val()) { status(null); if (!$("#gate").classList.contains("open")){ const pr=ref(`${R}/presence/${S.me}`); pr.update({name:S.myName||"?",role:S.isGM?"gm":"player",at:Date.now()}).catch(()=>{}); pr.onDisconnect().remove(); } } });
@@ -1259,10 +1609,10 @@ function status(msg){ const s=$("#status"); if(!msg){ s.hidden=true; return; } s
 function startLocal(){
   $("#home").classList.remove("open");
   fb=null; S.online=false; S.isGM=true; S.room="LOCAL"; R="rooms/LOCAL";
-  subscribeRoom(); startSaves(); setRole(); renderAll();
+  subscribeRoom(); startSaves(); setRole(); renderAll(); renderMusic();
   setTimeout(()=>{ if (!Object.keys(S.tokens).length){
     for (const [id,t] of Object.entries(defaultPCs(1))) putToken(id,t);
-    putToken("demo2",{name:"巨魔",size:"large",color:PALETTE[6],vision:16,claimable:false,hidden:false,x:12,y:7,at:2});
+    putToken("demo2",{name:"巨魔",size:"large",color:PALETTE[6],vision:16,claimable:false,hidden:false,x:5,y:10,at:2});
   } }, 300);
 }
 async function boot(){
@@ -1279,9 +1629,9 @@ async function boot(){
   try{ meta=(await Promise.race([fb.ref(`${R}/meta`).once("value"), new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),12000))])).val(); }
   catch(e){ status(null); renderHome(/permission/i.test(String(e&&(e.code||e.message)))?"資料庫拒絕讀取：請照說明設定 Firebase 規則":"連不上資料庫，請檢查網路或資料庫網址"); return; }
   status(null);
-  if (!meta){ renderHome(`找不到房間 ${code}`); return; }
+  if (!meta){ dropRecent(code); renderHome(`找不到房間 ${code}，可能已被刪除`); return; }
   S.meta=meta; S.cfg.title=meta.title||S.cfg.title; applyTitle(); addRecent(code, meta.title);
-  listen(`${R}/meta`, v=>{ if (v) S.meta=v; });
+  listen(`${R}/meta`, v=>{ if (v) { S.meta=v; return; } if (S.deleting) return; dropRecent(code); stopMusic(); $("#gate").classList.remove("open"); renderHome(`房間 ${code} 已被 GM 刪除`); });
   subscribeRoom();
   openGate();
 }
