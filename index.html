@@ -1,0 +1,1292 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#24322f">
+<title>戰術地圖</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+:root{
+  --ink:#1c2729; --ink-2:#4b5b5e; --paper:#e7e9e1; --panel:#f4f5f0; --line:#c7ccc0;
+  --table:#24322f; --brass:#a87d12; --brass-ink:#fff8e2; --player:#2f7f86; --danger:#b23a3a;
+  --chip:#dfe3d8; --shadow:0 6px 24px rgba(20,30,30,.18);
+  color-scheme: light;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --ink:#e4e8df; --ink-2:#a3aea8; --paper:#151d1c; --panel:#1d2726; --line:#334240;
+  --table:#101716; --brass:#d8ad3c; --brass-ink:#1a1405; --player:#6cc3c9; --danger:#e07070;
+  --chip:#26322f; --shadow:0 6px 24px rgba(0,0,0,.45); color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --ink:#e4e8df; --ink-2:#a3aea8; --paper:#151d1c; --panel:#1d2726; --line:#334240;
+  --table:#101716; --brass:#d8ad3c; --brass-ink:#1a1405; --player:#6cc3c9; --danger:#e07070;
+  --chip:#26322f; --shadow:0 6px 24px rgba(0,0,0,.45); color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{background:var(--paper);color:var(--ink);font:15px/1.5 "Noto Sans TC",system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+.num{font-family:"Chakra Petch","Noto Sans TC",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+#app{position:relative;height:100%;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--line);z-index:5}
+header h1{font-size:16px;margin:0;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.role{font-size:12px;padding:2px 8px;border-radius:3px;font-weight:700;white-space:nowrap}
+.role.gm{background:var(--brass);color:var(--brass-ink)}
+.role.pl{background:var(--player);color:var(--paper)}
+.role.solo{background:var(--chip);color:var(--ink-2)}
+header .sp{flex:1}
+.hbtn{border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:6px;padding:6px 9px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+.hbtn[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+#stage{position:relative;flex:1;min-height:0;background:var(--table);touch-action:none;overflow:hidden}
+canvas{display:block;width:100%;height:100%}
+#hud{position:absolute;left:10px;top:10px;pointer-events:none;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.tag{background:rgba(12,18,17,.8);color:#eef2ea;padding:4px 9px;border-radius:4px;font-size:13px}
+#status{position:absolute;right:10px;top:10px;font-size:12px}
+#tools{display:flex;gap:4px;padding:6px 8px;background:var(--panel);border-top:1px solid var(--line);overflow-x:auto;scrollbar-width:none;z-index:5}
+#tools::-webkit-scrollbar{display:none}
+.tool{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:1px;min-width:54px;padding:5px 6px;border:1px solid transparent;border-radius:8px;background:none;color:var(--ink);font:inherit;font-size:11px;cursor:pointer}
+.tool svg{width:22px;height:22px}
+.tool[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.tool.gmonly{color:var(--brass)}
+.tool.gmonly[aria-pressed="true"]{background:var(--brass);color:var(--brass-ink)}
+.tool .sub{font-size:10px;opacity:.75}
+.divider{width:1px;background:var(--line);margin:4px 2px;flex:0 0 1px}
+#sheet{position:absolute;left:0;right:0;bottom:0;max-height:52%;background:var(--panel);border-top:1px solid var(--line);box-shadow:var(--shadow);z-index:8;display:none;flex-direction:column;border-radius:12px 12px 0 0}
+#sheet.open{display:flex}
+@media (min-width:820px){#sheet{left:auto;top:0;bottom:0;width:340px;max-height:none;border-radius:0;border-top:0;border-left:1px solid var(--line)}}
+.sheet-head{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--line);align-items:center;overflow-x:auto}
+.tab{border:0;background:none;font:inherit;font-size:14px;padding:6px 10px;border-radius:6px;color:var(--ink-2);cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{background:var(--chip);color:var(--ink);font-weight:700}
+.close{margin-left:auto;border:0;background:none;color:var(--ink-2);font-size:22px;line-height:1;cursor:pointer;padding:2px 8px}
+.sheet-body{overflow:auto;padding:12px 14px 18px}
+.sheet-body h3{font-size:14px;margin:14px 0 6px;color:var(--ink-2);font-weight:500}
+.sheet-body h3:first-child{margin-top:0}
+.row{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
+.row label{font-size:13px;color:var(--ink-2);min-width:64px}
+input[type=text],input[type=number],input[type=password],input[type=url],select{font:inherit;font-size:16px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink);min-width:0}
+input[type=number]{width:84px}
+.row input[type=text]{flex:1}
+input[type=color]{width:40px;height:34px;padding:0;border:1px solid var(--line);border-radius:6px;background:none}
+.btn{font:inherit;font-size:14px;padding:7px 12px;border-radius:6px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer}
+.btn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.gm{background:var(--brass);color:var(--brass-ink);border-color:var(--brass)}
+.btn.warn{color:var(--danger);border-color:var(--danger)}
+.btn:disabled{opacity:.45;cursor:default}
+.switch{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin:6px 0}
+.switch input{width:18px;height:18px}
+.list{display:flex;flex-direction:column;gap:6px}
+.item{display:flex;align-items:center;gap:8px;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
+.item .dot{width:16px;height:16px;border-radius:50%;flex:0 0 16px;border:1px solid rgba(0,0,0,.25)}
+.item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .meta{font-size:12px;color:var(--ink-2)}
+.hint{font-size:13px;color:var(--ink-2);margin:4px 0}
+.empty{font-size:14px;color:var(--ink-2);padding:10px 0}
+#toast{position:absolute;left:50%;top:calc(64px + env(safe-area-inset-top,0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:8px 14px;border-radius:6px;font-size:14px;z-index:40;display:none;max-width:90%}
+#toast button{margin-left:10px;background:none;border:1px solid currentColor;color:inherit;border-radius:5px;padding:3px 10px;font:inherit;cursor:pointer}
+.overlay{position:absolute;inset:0;z-index:30;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(8,12,12,.62)}
+.overlay.open{display:flex}
+#home{background:var(--table)}
+#modal{z-index:35}
+.gate-card{background:var(--panel);color:var(--ink);border-radius:14px;padding:20px;max-width:400px;width:100%;box-shadow:var(--shadow);max-height:100%;overflow:auto}
+.gate-card h2{margin:0 0 4px;font-size:20px}
+.gate-card h3{font-size:15px;margin:18px 0 4px}
+.fld{display:block;margin:10px 0}
+.fld span{display:block;font-size:13px;color:var(--ink-2);margin-bottom:3px}
+.fld input{width:100%}
+.choice{display:block;width:100%;text-align:left;padding:14px 16px;margin:10px 0 0;border:2px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink);font:inherit;cursor:pointer}
+.choice b{display:block;font-size:17px;margin-bottom:2px}
+.choice span{font-size:13px;color:var(--ink-2)}
+.choice.pl{border-color:var(--player)}
+.choice.gm{border-color:var(--brass)}
+.err{color:var(--danger);font-size:13px;margin:6px 0 0}
+.code{font-family:"Chakra Petch",ui-monospace,monospace;letter-spacing:.12em;font-weight:600}
+#selbar{position:absolute;left:10px;bottom:10px;display:none;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 6px 6px 12px;box-shadow:var(--shadow);z-index:6;max-width:calc(100% - 76px)}
+#selbar.open{display:flex}
+#selbar .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+#selbar .hint{margin:0;white-space:nowrap}
+#selbar .btn{padding:8px 12px}
+#zoom{position:absolute;right:10px;bottom:10px;display:flex;flex-direction:column;gap:6px;z-index:5}
+#zoom button{width:44px;height:44px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:22px;line-height:1;cursor:pointer;box-shadow:var(--shadow)}
+:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1 id="title">戰術地圖</h1>
+    <span id="role" class="role solo">單機</span>
+    <span class="sp"></span>
+    <button class="hbtn" id="btnPreview" aria-pressed="false" hidden>玩家視角</button>
+    <button class="hbtn" id="btnInvite" hidden>邀請</button>
+    <button class="hbtn" id="btnRole" hidden>身分</button>
+    <button class="hbtn" id="btnPanel">面板</button>
+  </header>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="hud"></div>
+    <div id="status" class="tag" hidden></div>
+    <div id="selbar" role="toolbar" aria-label="選取的棋子"></div>
+    <div id="zoom"><button data-z="1.25" aria-label="放大">+</button><button data-z="0.8" aria-label="縮小">−</button></div>
+  </div>
+  <nav id="tools" aria-label="工具"></nav>
+  <section id="sheet" aria-label="面板">
+    <div class="sheet-head" role="tablist" id="tabs"></div>
+    <div class="sheet-body" id="sheetBody"></div>
+  </section>
+  <div id="toast" role="status"></div>
+  <div id="home" class="overlay" role="dialog" aria-label="房間"></div>
+  <div id="gate" class="overlay" role="dialog" aria-modal="true" aria-label="選擇身分"></div>
+  <div id="modal" class="overlay" role="dialog" aria-modal="true"></div>
+</div>
+
+<script>
+/* =====================================================================
+   設定：把你的 Firebase Realtime Database 網址填在這裡（只要填一次）
+   例：https://my-trpg-default-rtdb.asia-southeast1.firebasedatabase.app
+   留空也可以：第一次打開時頁面會請 GM 貼上，並自動帶進邀請連結。
+   ===================================================================== */
+const FIREBASE_DB_URL = "";
+
+(() => {
+"use strict";
+/* ============ 常數 ============ */
+const SIZES = [
+  {k:"tiny",   n:"微型",   f:0.5},
+  {k:"small",  n:"小型",   f:1},
+  {k:"medium", n:"中型",   f:1},
+  {k:"large",  n:"大型",   f:2},
+  {k:"huge",   n:"超大型", f:3},
+  {k:"garg",   n:"巨型",   f:4},
+  {k:"colos",  n:"超巨型", f:6},
+];
+const FOOT = Object.fromEntries(SIZES.map(s => [s.k, s.f]));
+const PALETTE = ["#3f8f96","#c2563f","#7a63b8","#4f9a4a","#c49a2c","#b84f86","#4a6fb0","#8a8f86"];
+const MAX_GRID = 120;
+function defaultPCs(startN){ const o={}; for (let i=0;i<5;i++) o["pc"+uid()]={name:`角色${startN+i}`,size:"medium",color:PALETTE[i],vision:20,claimable:true,hidden:false,x:2+i*2,y:2,at:Date.now()+i,createdBy:"gm"}; return o; }
+const DEFAULT_CFG = {cols:24, rows:16, meters:2, fog:false, shareVision:true, walls:"", reveal:"", bgId:null, title:"戰術地圖"};
+
+/* ============ 小工具 ============ */
+const $ = s => document.querySelector(s);
+const uid = () => Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4);
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const ls = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k,v) => { try { v==null ? localStorage.removeItem(k) : localStorage.setItem(k,v); } catch {} };
+function toast(msg, act){ const t=$("#toast"); t.textContent=msg;
+  if (act){ const b=document.createElement("button"); b.textContent=act.label; b.onclick=()=>{ t.style.display="none"; act.fn(); }; t.appendChild(b); }
+  t.style.display="block"; clearTimeout(toast._t); toast._t=setTimeout(()=>t.style.display="none", act?7000:2600); }
+async function hashStr(s){
+  try { if (crypto && crypto.subtle){ const b=await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join(""); } } catch {}
+  let h1=0x811c9dc5, h2=0x1505; for (let i=0;i<s.length;i++){ const c=s.charCodeAt(i); h1=Math.imul(h1^c,16777619)>>>0; h2=(Math.imul(h2,33)+c)>>>0; } return "f"+h1.toString(16)+h2.toString(16);
+}
+function roomCode(){ const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s=""; for(let i=0;i<6;i++) s+=A[Math.floor(Math.random()*A.length)]; return s; }
+function bitGet(str, i){ return str.charCodeAt(i) === 49; }
+function ensureBits(str){ const n=S.cfg.cols*S.cfg.rows; if(!str || str.length!==n) return "0".repeat(n); return str; }
+function gridDist(dx, dy){ // 直線每格；第一次斜走 1 格，之後斜走 2 格
+  dx=Math.abs(dx); dy=Math.abs(dy);
+  const d=Math.min(dx,dy), st=Math.max(dx,dy)-d;
+  return (st + (d>0 ? 1 + (d-1)*2 : 0)) * S.cfg.meters;
+}
+const fmtM = m => (Math.round(m*10)/10) + " 米";
+
+/* ============ 對話框 ============ */
+function dialog({title, text, fields=[], ok="確定", cancel="取消", danger=false}){
+  return new Promise(res=>{
+    const m=$("#modal");
+    m.innerHTML=`<div class="gate-card"><h2>${esc(title)}</h2>${text?`<p class="hint">${esc(text)}</p>`:""}${fields.map(f=>`<label class="fld"><span>${esc(f.label)}</span><input id="dlg-${f.id}" type="${f.type||"text"}" ${f.inputmode?`inputmode="${f.inputmode}"`:""} placeholder="${esc(f.placeholder||"")}" value="${esc(f.value||"")}" maxlength="${f.max||40}" autocomplete="off"></label>`).join("")}<p class="err" id="dlg-err"></p><div class="row" style="justify-content:flex-end;margin-top:10px">${cancel?`<button class="btn" data-x="0">${esc(cancel)}</button>`:""}<button class="btn ${danger?"warn":"primary"}" data-x="1">${esc(ok)}</button></div></div>`;
+    m.classList.add("open");
+    const first=m.querySelector("input"); if(first) setTimeout(()=>first.focus(),60);
+    const finish=v=>{ m.classList.remove("open"); m.innerHTML=""; m.onclick=null; m.onkeydown=null; res(v); };
+    m.onclick=e=>{ const b=e.target.closest("button[data-x]"); if(!b) return; if(b.dataset.x==="0") return finish(null); const out={}; fields.forEach(f=>out[f.id]=m.querySelector("#dlg-"+f.id).value.trim()); finish(out); };
+    m.onkeydown=e=>{ if(e.key==="Enter"){ e.preventDefault(); m.querySelector('button[data-x="1"]').click(); } if(e.key==="Escape" && cancel) finish(null); };
+  });
+}
+const confirmBox = (title, text, ok="確定") => dialog({title, text, ok, danger:true}).then(v=>!!v);
+
+/* ============ 資料層：Firebase 或本機 ============ */
+const qs = new URLSearchParams(location.search);
+let DB_URL = FIREBASE_DB_URL || qs.get("db") || ls("bm-dburl") || "";
+let fb = null;
+function initFirebase(url){
+  if (!url || typeof firebase==="undefined") return null;
+  try { const app = firebase.apps.length ? firebase.app() : firebase.initializeApp({databaseURL:url}); return app.database(); }
+  catch(e){ console.warn(e); return null; }
+}
+const local = (() => {
+  let tree={}; try { tree=JSON.parse(ls("bm-local")||"{}"); } catch {}
+  const subs=new Set();
+  const keys=p=>p.split("/").filter(Boolean);
+  const get=p=>keys(p).reduce((o,k)=>o==null?undefined:o[k], tree);
+  const clean=v=>JSON.parse(JSON.stringify(v, (k,x)=>x===null?undefined:x));
+  function setAt(p,v){ const ks=keys(p); let o=tree; for(let i=0;i<ks.length-1;i++){ if(typeof o[ks[i]]!=="object"||o[ks[i]]===null) o[ks[i]]={}; o=o[ks[i]]; } const last=ks[ks.length-1]; if(v===null||v===undefined) delete o[last]; else o[last]=clean(v); }
+  const snap=p=>{ const v=get(p); return {val:()=>v===undefined?null:JSON.parse(JSON.stringify(v)), exists:()=>v!==undefined}; };
+  let pend=false;
+  function commit(){ lsSet("bm-local", JSON.stringify(tree)); if(pend) return; pend=true; queueMicrotask(()=>{ pend=false; subs.forEach(s=>s.cb(snap(s.path))); }); }
+  function ref(p){ return {
+    set(v){ setAt(p,v); commit(); return Promise.resolve(); },
+    update(obj){ for(const [k,v] of Object.entries(obj)) setAt(p+"/"+k, v); commit(); return Promise.resolve(); },
+    remove(){ setAt(p,null); commit(); return Promise.resolve(); },
+    once(){ return Promise.resolve(snap(p)); },
+    on(ev,cb){ const s={path:p,cb}; subs.add(s); queueMicrotask(()=>cb(snap(p))); s.off=()=>subs.delete(s); return s; },
+    transaction(fn){ const r=fn(snap(p).val()); if(r!==undefined){ setAt(p,r); commit(); return Promise.resolve({committed:true}); } return Promise.resolve({committed:false}); },
+    onDisconnect(){ return {remove(){ return Promise.resolve(); }}; },
+  }; }
+  return {ref};
+})();
+const ref = p => fb ? fb.ref(p) : local.ref(p);
+function listen(p, cb){
+  if (fb){ const r=fb.ref(p); const h=s=>cb(s.val()); r.on("value", h, e=>{ console.warn(e); toast("讀取失敗：請確認資料庫規則"); }); return ()=>r.off("value",h); }
+  const s=local.ref(p).on("value", snap=>cb(snap.val())); return s.off;
+}
+function onWriteError(e){
+  console.warn(e);
+  if (e && /permission/i.test(e.code||e.message||"")) toast("資料庫拒絕寫入：請檢查 Firebase 規則");
+  else toast("儲存失敗，請檢查網路");
+}
+const w = p => p.catch(onWriteError);
+
+/* ============ 狀態 ============ */
+const S = {
+  cfg: {...DEFAULT_CFG},
+  tokens: {}, templates: {}, combat: {round:1, turn:0, order:[]},
+  me: ls("bm-dev") || (()=>{ const v="d"+uid(); lsSet("bm-dev",v); return v; })(),
+  myName: ls("bm-name") || "",
+  isGM: false, online: false, room: "", meta: null,
+  view: {x:40, y:40, s:44},
+  tool: "select", coneAngle: 90,
+  sel: null, selTpl: null, preview: false,
+  drag: null, draft: null, ruler: null, paint: null, tplDrag: null,
+  peers: {}, saves: [], tab: "token", tokensReady:false,
+};
+let R = ""; // 房間路徑
+
+/* ============ 寫入 ============ */
+function putToken(id, data){ S.tokens[id] = data; w(ref(`${R}/tokens/${id}`).set(data)); visCache.key=null; draw(); }
+function patchToken(id, patch){ if(!S.tokens[id]) return; const n={...S.tokens[id], ...patch}; for(const k in patch) if(patch[k]===null) delete n[k]; S.tokens[id]=n; w(ref(`${R}/tokens/${id}`).update(patch)); visCache.key=null; draw(); }
+function delToken(id){ delete S.tokens[id]; if (S.sel===id) S.sel=null; w(ref(`${R}/tokens/${id}`).remove()); visCache.key=null; draw(); }
+function putTemplate(id, data){ S.templates[id] = data; w(ref(`${R}/templates/${id}`).set(data)); draw(); }
+function delTemplate(id){ delete S.templates[id]; w(ref(`${R}/templates/${id}`).remove()); draw(); }
+function patchCfg(patch){ S.cfg = {...S.cfg, ...patch}; visCache.key=null; w(ref(`${R}/cfg`).update(patch)); draw(); }
+function putCombat(c){ S.combat = c; w(ref(`${R}/combat`).set(c)); renderPanel(); updateHud(); draw(); }
+function removeFromCombat(tid){
+  const c=S.combat, order=c.order||[]; if (!order.some(e=>e.tid===tid)) return;
+  const cur=order[c.turn]; const nord=order.filter(e=>e.tid!==tid);
+  let turn=cur && cur.tid!==tid ? nord.indexOf(cur) : Math.min(c.turn, Math.max(0,nord.length-1));
+  putCombat({...c, order:nord, turn:Math.max(0,turn)});
+}
+function pruneCombat(){
+  const c=S.combat, order=c.order||[];
+  if (!order.some(e=>e.tid && !S.tokens[e.tid])) return;
+  const cur=order[c.turn]; const nord=order.filter(e=>!(e.tid && !S.tokens[e.tid]));
+  let turn=nord.indexOf(cur); if (turn<0) turn=Math.min(c.turn, nord.length-1);
+  putCombat({...c, order:nord, turn:Math.max(0,turn)});
+}
+function normOrder(o){ if (!o) return []; if (Array.isArray(o)) return o.filter(Boolean); return Object.keys(o).sort((a,b)=>a-b).map(k=>o[k]).filter(Boolean); }
+
+/* ============ 權限 ============ */
+const canControl = t => t && (S.isGM || t.ownerId === S.me);
+const canDeleteTpl = t => t && (S.isGM || t.ownerId === S.me);
+const isCreator = t => t && t.createdBy === S.me;
+const canEditProps = t => t && (S.isGM || isCreator(t));
+const canDeleteToken = t => t && (S.isGM || isCreator(t));
+function nameOf(id){ if(!id) return ""; if (id===S.me) return "你"; if (S.peers[id]?.name) return S.peers[id].name; const t=Object.values(S.tokens).find(t=>t.ownerId===id&&t.ownerName); return t ? t.ownerName : "玩家"; }
+
+/* ============ 視野 / 戰爭迷霧 ============ */
+const visCache = {key:null, set:null};
+function isWall(cx, cy){ const {cols,rows}=S.cfg; if(cx<0||cy<0||cx>=cols||cy>=rows) return true; return bitGet(S.cfg.walls||"", cy*cols+cx); }
+function losClear(sx, sy, tx, ty, tcx, tcy){
+  const dx=tx-sx, dy=ty-sy, len=Math.hypot(dx,dy), steps=Math.max(1, Math.ceil(len/0.2));
+  for(let i=1;i<steps;i++){ const x=sx+dx*i/steps, y=sy+dy*i/steps, cx=Math.floor(x), cy=Math.floor(y); if (cx===tcx && cy===tcy) continue; if (isWall(cx,cy)) return false; }
+  return true;
+}
+function viewers(){
+  const out=[];
+  for (const t of Object.values(S.tokens)){
+    if (t.hidden || !t.ownerId) continue;
+    if (S.isGM || t.ownerId===S.me || S.cfg.shareVision) out.push(t);
+  }
+  return out;
+}
+function hash(s){ s=s||""; let h=s.length; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))|0; return h; }
+function visibleCells(){
+  const {cols,rows} = S.cfg, vs = viewers();
+  const key = JSON.stringify([cols,rows,hash(S.cfg.walls),hash(S.cfg.reveal),S.cfg.meters,S.isGM,vs.map(t=>[t.x,t.y,t.size,t.vision])]);
+  if (visCache.key === key) return visCache.set;
+  const vis = new Uint8Array(cols*rows), rv = ensureBits(S.cfg.reveal);
+  for (let i=0;i<vis.length;i++) if (rv.charCodeAt(i)===49) vis[i]=1;
+  for (const t of vs){
+    const f=FOOT[t.size]||1, sx=t.x+f/2, sy=t.y+f/2, r=Math.max(0,(+t.vision||0)/S.cfg.meters)+f/2;
+    for (let cy=Math.floor(t.y); cy<Math.ceil(t.y+f); cy++) for (let cx=Math.floor(t.x); cx<Math.ceil(t.x+f); cx++) if(cx>=0&&cy>=0&&cx<cols&&cy<rows) vis[cy*cols+cx]=1;
+    const x0=Math.max(0,Math.floor(sx-r)), x1=Math.min(cols-1,Math.ceil(sx+r)), y0=Math.max(0,Math.floor(sy-r)), y1=Math.min(rows-1,Math.ceil(sy+r));
+    for (let cy=y0; cy<=y1; cy++) for (let cx=x0; cx<=x1; cx++){
+      const i=cy*cols+cx; if (vis[i]) continue;
+      if (Math.hypot(cx+.5-sx, cy+.5-sy) > r) continue;
+      if (losClear(sx,sy,cx+.5,cy+.5,cx,cy) || losClear(sx,sy,cx+.15,cy+.15,cx,cy) || losClear(sx,sy,cx+.85,cy+.15,cx,cy) || losClear(sx,sy,cx+.15,cy+.85,cx,cy) || losClear(sx,sy,cx+.85,cy+.85,cx,cy)) vis[i]=1;
+    }
+  }
+  visCache.key=key; visCache.set=vis; return vis;
+}
+const fogActive = () => S.cfg.fog && (!S.isGM || S.preview);
+function tokenSeen(t){
+  if (t.hidden && !S.isGM) return false;
+  if (!fogActive() || t.ownerId===S.me) return true;
+  const vis=visibleCells(), {cols,rows}=S.cfg, f=FOOT[t.size]||1;
+  for (let cy=Math.floor(t.y); cy<Math.ceil(t.y+f); cy++) for (let cx=Math.floor(t.x); cx<Math.ceil(t.x+f); cx++) if(cx>=0&&cy>=0&&cx<cols&&cy<rows&&vis[cy*cols+cx]) return true;
+  return false;
+}
+
+/* ============ 範圍形狀 ============ */
+function normT(t){
+  if (t.shape==="rect" && t.cx==null){
+    const x0=Math.min(t.x0,t.x1), x1=Math.max(t.x0,t.x1), y0=Math.min(t.y0,t.y1), y1=Math.max(t.y0,t.y1);
+    const n={...t, cx:(x0+x1+1)/2, cy:(y0+y1+1)/2, w:x1-x0+1, h:y1-y0+1, ang:t.ang||0};
+    delete n.x0; delete n.x1; delete n.y0; delete n.y1; return n;
+  }
+  return t;
+}
+function shiftT(t,dx,dy){ return t.shape==="rect" ? {...t,cx:t.cx+dx,cy:t.cy+dy} : {...t,ox:t.ox+dx,oy:t.oy+dy}; }
+function tokPos(id){
+  const t=S.tokens[id]; if(!t) return null;
+  if (S.drag && S.drag.id===id) return {x:S.drag.x,y:S.drag.y};
+  for (const [pid,p] of Object.entries(S.peers)) if (pid!==S.me && p && p.drag && p.drag.id===id) return {x:+p.drag.x,y:+p.drag.y};
+  return {x:t.x,y:t.y};
+}
+function bindShift(g){ if (!g.bind) return [0,0]; const p=tokPos(g.bind.tid); return p ? [p.x-g.bind.ax, p.y-g.bind.ay] : [0,0]; }
+function effT(id,t){ // 實際顯示的位置（含拖曳中與綁定偏移）
+  const g = (S.tplDrag && S.tplDrag.id===id) ? S.tplDrag.geom : normT(t);
+  const [bx,by]=bindShift(g); return (bx||by) ? shiftT(g,bx,by) : g;
+}
+function tplHandle(g){
+  const r=(g.len||0)/S.cfg.meters;
+  if (g.shape==="circle") return [g.ox+r, g.oy];
+  if (g.shape==="rect"){ const a=g.ang||0, d=g.w/2+0.7; return [g.cx+Math.cos(a)*d, g.cy+Math.sin(a)*d]; }
+  return [g.ox+Math.cos(g.ang)*r, g.oy+Math.sin(g.ang)*r];
+}
+function snapRectCenter(g){
+  const a=g.ang||0, c=Math.abs(Math.cos(a)), sn=Math.abs(Math.sin(a));
+  if (Math.min(c,sn)>1e-3) return g;
+  const ex=Math.round(g.w*c+g.h*sn), ey=Math.round(g.w*sn+g.h*c);
+  const f=(v,e)=> e%2 ? Math.floor(v)+0.5 : Math.round(v);
+  return {...g, cx:f(g.cx,ex), cy:f(g.cy,ey)};
+}
+function tplCells(t){
+  t=normT(t);
+  const {cols,rows}=S.cfg, out=[];
+  if (t.shape==="rect"){
+    const a=t.ang||0, ux=Math.cos(a), uy=Math.sin(a), rr=Math.hypot(t.w,t.h)/2+1;
+    for (let y=Math.max(0,Math.floor(t.cy-rr)); y<=Math.min(rows-1,Math.ceil(t.cy+rr)); y++)
+      for (let x=Math.max(0,Math.floor(t.cx-rr)); x<=Math.min(cols-1,Math.ceil(t.cx+rr)); x++){
+        const dx=x+.5-t.cx, dy=y+.5-t.cy, p=dx*ux+dy*uy, q=-dx*uy+dy*ux;
+        if (Math.abs(p)<t.w/2-1e-6 && Math.abs(q)<t.h/2-1e-6) out.push([x,y]);
+      }
+    return out;
+  }
+  const r = t.len / S.cfg.meters;
+  const x0=Math.max(0,Math.floor(t.ox-r-1)), x1=Math.min(cols-1,Math.ceil(t.ox+r+1)), y0=Math.max(0,Math.floor(t.oy-r-1)), y1=Math.min(rows-1,Math.ceil(t.oy+r+1));
+  for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+    const dx=x+.5-t.ox, dy=y+.5-t.oy, d=Math.hypot(dx,dy);
+    if (t.shape==="circle"){ if (d<=r+1e-6) out.push([x,y]); }
+    else if (t.shape==="cone"){
+      if (d>r+1e-6 || d<1e-6) continue;
+      let a=Math.atan2(dy,dx)-t.ang; a=Math.atan2(Math.sin(a),Math.cos(a));
+      if (Math.abs(a) <= (t.spread*Math.PI/180)/2 + 1e-6) out.push([x,y]);
+    } else if (t.shape==="line"){
+      const ux=Math.cos(t.ang), uy=Math.sin(t.ang), p=dx*ux+dy*uy, q=Math.abs(-dx*uy+dy*ux);
+      if (p>=0 && p<=r && q<=0.5*(t.width||1)) out.push([x,y]);
+    }
+  }
+  return out;
+}
+function tplLabel(t){
+  t=normT(t); const m=S.cfg.meters;
+  if (t.shape==="rect") return `${t.w*m}×${t.h*m} 米`;
+  if (t.shape==="circle") return `半徑 ${fmtM(t.len)}`;
+  if (t.shape==="cone") return `錐形 ${fmtM(t.len)} · ${t.spread}°`;
+  return `直線 ${fmtM(t.len)}`;
+}
+
+/* ============ 畫布 ============ */
+const cv=$("#cv"), ctx=cv.getContext("2d");
+let bgImg=null, bgData=null;
+function setBgData(data){ if (data===bgData) return; bgData=data; bgImg=null; if(!data){ draw(); return; } const im=new Image(); im.onload=()=>{ bgImg=im; draw(); }; im.src=data; }
+function resize(){ const r=cv.getBoundingClientRect(), d=window.devicePixelRatio||1; cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); draw(); }
+const s2w=(x,y)=>[(x-S.view.x)/S.view.s, (y-S.view.y)/S.view.s];
+let raf=0; function draw(){ if(!raf) raf=requestAnimationFrame(()=>{raf=0; paint();}); }
+function currentEntry(){ const c=S.combat; return (c.order||[])[c.turn]; }
+
+function paint(){
+  const d=window.devicePixelRatio||1, W=cv.width/d, H=cv.height/d;
+  ctx.setTransform(d,0,0,d,0,0);
+  ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue("--table").trim()||"#24322f";
+  ctx.fillRect(0,0,W,H);
+  const {cols,rows}=S.cfg, s=S.view.s;
+  ctx.save(); ctx.translate(S.view.x,S.view.y);
+  ctx.fillStyle="#3a4a46"; ctx.fillRect(0,0,cols*s,rows*s);
+  if (bgImg) ctx.drawImage(bgImg,0,0,cols*s,rows*s);
+  const walls=ensureBits(S.cfg.walls);
+  ctx.fillStyle="rgba(18,20,22,.86)";
+  for(let i=0;i<walls.length;i++) if(walls.charCodeAt(i)===49){ ctx.fillRect((i%cols)*s,((i/cols)|0)*s,s,s); }
+  ctx.strokeStyle="rgba(210,190,140,.55)"; ctx.lineWidth=1;
+  for(let i=0;i<walls.length;i++) if(walls.charCodeAt(i)===49){ const x=i%cols, y=(i/cols)|0; ctx.beginPath(); ctx.moveTo(x*s,y*s+s); ctx.lineTo(x*s+s,y*s); ctx.stroke(); }
+  ctx.strokeStyle="rgba(232,238,226,.28)"; ctx.lineWidth=1; ctx.beginPath();
+  for(let x=0;x<=cols;x++){ ctx.moveTo(x*s+.5,0); ctx.lineTo(x*s+.5,rows*s); }
+  for(let y=0;y<=rows;y++){ ctx.moveTo(0,y*s+.5); ctx.lineTo(cols*s,y*s+.5); }
+  ctx.stroke(); ctx.strokeStyle="rgba(232,238,226,.6)"; ctx.strokeRect(0,0,cols*s,rows*s);
+
+  const tpls=Object.entries(S.templates).map(([id,t])=>({id,...effT(id,t)}));
+  if (S.draft) tpls.push({id:"__draft",...normT(S.draft)});
+  const hitCells=new Set();
+  for (const t of tpls){
+    const col=t.color||"#e0603a", selected=S.selTpl===t.id;
+    ctx.fillStyle=hexA(col, selected?.42:.32);
+    for (const [x,y] of tplCells(t)){ ctx.fillRect(x*s,y*s,s,s); hitCells.add(x+","+y); }
+    ctx.beginPath();
+    if (t.shape==="rect"){ const a=t.ang||0, ux=Math.cos(a), uy=Math.sin(a), hw=t.w/2*s, hh=t.h/2*s, cx=t.cx*s, cy=t.cy*s;
+      const pts=[[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(([px,py])=>[cx+px*ux-py*uy, cy+px*uy+py*ux]);
+      ctx.moveTo(...pts[0]); for (let i=1;i<4;i++) ctx.lineTo(...pts[i]); ctx.closePath(); }
+    else { const r=t.len/S.cfg.meters*s;
+      if (t.shape==="circle") ctx.arc(t.ox*s,t.oy*s,r,0,Math.PI*2);
+      else if (t.shape==="cone"){ const h=t.spread*Math.PI/360; ctx.moveTo(t.ox*s,t.oy*s); ctx.arc(t.ox*s,t.oy*s,r,t.ang-h,t.ang+h); ctx.closePath(); }
+      else { const ww=(t.width||1)/2*s, ux=Math.cos(t.ang), uy=Math.sin(t.ang), px=-uy*ww, py=ux*ww, ex=t.ox*s+ux*r, ey=t.oy*s+uy*r;
+        ctx.moveTo(t.ox*s+px,t.oy*s+py); ctx.lineTo(ex+px,ey+py); ctx.lineTo(ex-px,ey-py); ctx.lineTo(t.ox*s-px,t.oy*s-py); ctx.closePath(); }
+    }
+    ctx.strokeStyle=col; ctx.lineWidth=2; ctx.setLineDash(t.id==="__draft"?[6,4]:[]); ctx.stroke();
+    if (selected){ ctx.strokeStyle="#fff"; ctx.lineWidth=1.5; ctx.setLineDash([4,4]); ctx.stroke(); }
+    ctx.setLineDash([]);
+    if (t.shape!=="rect"){ ctx.fillStyle=col; ctx.beginPath(); ctx.arc(t.ox*s,t.oy*s,4,0,7); ctx.fill(); }
+    if (t.bind){ const [bx,by]= t.shape==="rect"?[t.cx,t.cy]:[t.ox,t.oy]; ctx.fillStyle="#fff"; ctx.font='700 11px "Noto Sans TC",sans-serif'; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText("🔗",bx*s+10,by*s-10); }
+    if (selected && canDeleteTpl(S.templates[t.id])){
+      const [hx,hy]=tplHandle(t), [ax,ay]= t.shape==="rect"?[t.cx,t.cy]:[t.ox,t.oy];
+      ctx.strokeStyle="rgba(255,255,255,.7)"; ctx.lineWidth=1; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(ax*s,ay*s); ctx.lineTo(hx*s,hy*s); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle="#fff"; ctx.strokeStyle=col; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(hx*s,hy*s,12,0,7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle=col; ctx.font='700 14px sans-serif'; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(t.shape==="circle"?"↔":"↻",hx*s,hy*s+1);
+    }
+  }
+
+  const ghosts={}; for (const [pid,p] of Object.entries(S.peers)) if (pid!==S.me && p && p.drag && S.tokens[p.drag.id]) ghosts[p.drag.id]=p.drag;
+  const toks=Object.entries(S.tokens).map(([id,t])=>{
+    const g=ghosts[id], dr=S.drag&&S.drag.id===id;
+    return {id,...t, x: dr?S.drag.x:(g?+g.x:t.x), y: dr?S.drag.y:(g?+g.y:t.y)};
+  }).filter(tokenSeen).sort((a,b)=>(FOOT[b.size]||1)-(FOOT[a.size]||1));
+  for (const t of toks) drawToken(t, s, hitCells);
+
+  if (S.cfg.fog){
+    const vis=visibleCells();
+    if (!S.isGM || S.preview){
+      ctx.fillStyle = S.isGM ? "rgba(6,9,10,.62)" : "rgb(9,12,13)"; ctx.beginPath();
+      for(let i=0;i<vis.length;i++) if(!vis[i]) ctx.rect((i%cols)*s-.25,((i/cols)|0)*s-.25,s+.5,s+.5);
+      ctx.fill();
+      for (const t of toks) if (t.ownerId===S.me) drawToken(t,s,hitCells);
+    } else {
+      ctx.fillStyle="rgba(10,14,16,.22)"; ctx.beginPath();
+      for(let i=0;i<vis.length;i++) if(!vis[i]) ctx.rect((i%cols)*s,((i/cols)|0)*s,s,s);
+      ctx.fill();
+    }
+  }
+  if (S.paint){ ctx.fillStyle = S.paint.mode==="walls" ? (S.paint.value?"rgba(20,20,20,.6)":"rgba(255,255,255,.25)") : (S.paint.value?"rgba(255,230,140,.35)":"rgba(0,0,0,.45)");
+    for (const k of S.paint.cells){ const [x,y]=k.split(",").map(Number); ctx.fillRect(x*s,y*s,s,s); } }
+  if (S.drag && S.drag.moved){
+    const t=S.tokens[S.drag.id]; if (t){ const f=FOOT[t.size]||1;
+    lineLabel((S.drag.startX+f/2)*s,(S.drag.startY+f/2)*s,(S.drag.x+f/2)*s,(S.drag.y+f/2)*s, fmtM(gridDist(S.drag.x-S.drag.startX, S.drag.y-S.drag.startY))); }
+  }
+  if (gesture && gesture.type==="tplmove" && gesture.holdTid && S.tokens[gesture.holdTid]){
+    const tk=S.tokens[gesture.holdTid], p=tokPos(gesture.holdTid), f=FOOT[tk.size]||1, cx=(p.x+f/2)*s, cy=(p.y+f/2)*s, r=f*s/2*0.86+10;
+    const frac=gesture.bindTo?1:Math.min(1,(performance.now()-gesture.holdStart)/3000);
+    ctx.lineWidth=6; ctx.strokeStyle="rgba(12,18,17,.6)"; ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.stroke();
+    ctx.strokeStyle=gesture.bindTo?"#7be08a":"#ffd36a"; ctx.beginPath(); ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+frac*Math.PI*2); ctx.stroke();
+    pill(cx, cy-r-16, gesture.bindTo?`放開即綁定到 ${tk.name}`:`綁定中 ${Math.ceil(3-frac*3)} 秒`);
+  }
+  if (S.ruler){ const r=S.ruler; lineLabel((r.x0+.5)*s,(r.y0+.5)*s,(r.x1+.5)*s,(r.y1+.5)*s, fmtM(gridDist(r.x1-r.x0,r.y1-r.y0))); }
+  if (S.draft){ const t=S.draft; const [lx,ly]= t.shape==="rect"?[(Math.max(t.x0,t.x1)+1)*s,(Math.max(t.y0,t.y1)+1)*s]:[t.ox*s,t.oy*s-14]; pill(lx,ly,tplLabel(t)); }
+  ctx.restore();
+  renderSelbar();
+}
+function hexA(hex,a){ const m=/^#?([0-9a-f]{6})$/i.exec(hex||""); if(!m) return `rgba(224,96,58,${a})`; const n=parseInt(m[1],16); return `rgba(${n>>16},${(n>>8)&255},${n&255},${a})`; }
+function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function pill(x,y,text){
+  ctx.font='600 13px "Chakra Petch","Noto Sans TC",sans-serif';
+  const wd=ctx.measureText(text).width+14;
+  ctx.fillStyle="rgba(12,18,17,.88)"; roundRect(x-wd/2,y-11,wd,22,5); ctx.fill();
+  ctx.fillStyle="#f3f1e6"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(text,x,y+1);
+}
+function lineLabel(x0,y0,x1,y1,text){
+  ctx.strokeStyle="#ffd36a"; ctx.lineWidth=2.5; ctx.setLineDash([8,5]); ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle="#ffd36a"; ctx.beginPath(); ctx.arc(x0,y0,4,0,7); ctx.arc(x1,y1,4,0,7); ctx.fill();
+  pill((x0+x1)/2,(y0+y1)/2-16,text);
+}
+function drawToken(t,s,hitCells){
+  const f=FOOT[t.size]||1, cx=(t.x+f/2)*s, cy=(t.y+f/2)*s, r=f*s/2*0.86;
+  ctx.globalAlpha = t.hidden ? .5 : 1;
+  let hit=false; for(let y=Math.floor(t.y);y<Math.ceil(t.y+f)&&!hit;y++) for(let x=Math.floor(t.x);x<Math.ceil(t.x+f);x++) if(hitCells.has(x+","+y)){hit=true;break;}
+  ctx.shadowColor="rgba(0,0,0,.45)"; ctx.shadowBlur=6; ctx.shadowOffsetY=2;
+  ctx.fillStyle=t.color||"#3f8f96"; ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.fill();
+  ctx.shadowColor="transparent";
+  ctx.lineWidth=Math.max(2,s*0.06); ctx.strokeStyle= t.ownerId===S.me ? "#ffe08a" : "rgba(248,246,236,.9)"; ctx.stroke();
+  if (hit){ ctx.strokeStyle="#ff5a4a"; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(cx,cy,r+4,0,7); ctx.stroke(); }
+  const ce=currentEntry(); if (ce && ce.tid===t.id){ ctx.strokeStyle="#f2c14e"; ctx.lineWidth=4; ctx.beginPath(); ctx.arc(cx,cy,r+(hit?9:5),0,7); ctx.stroke(); }
+  if (S.sel===t.id){ ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.setLineDash([4,3]); ctx.beginPath(); ctx.arc(cx,cy,r+(ce&&ce.tid===t.id?11:7),0,7); ctx.stroke(); ctx.setLineDash([]); }
+  const name=t.name||"?";
+  const inner = r*2 > 56 ? name : [...name][0];
+  ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.textBaseline="middle";
+  const fs=Math.max(9, Math.min(r*0.8, 22)); ctx.font=`700 ${fs}px "Noto Sans TC",sans-serif`;
+  let txt=inner; while (ctx.measureText(txt).width > r*1.7 && txt.length>1) txt=txt.slice(0,-1);
+  ctx.fillText(txt,cx,cy+1);
+  if (r*2 <= 56 && s>=26){ ctx.font='500 11px "Noto Sans TC",sans-serif'; const wd=ctx.measureText(name).width+8; ctx.fillStyle="rgba(12,18,17,.75)"; roundRect(cx-wd/2,cy+r+2,wd,16,4); ctx.fill(); ctx.fillStyle="#f3f1e6"; ctx.fillText(name,cx,cy+r+10.5); }
+  if (t.hidden){ ctx.font='600 10px "Noto Sans TC",sans-serif'; ctx.fillStyle="#ffd36a"; ctx.fillText("隱藏",cx,cy-r-6); }
+  ctx.globalAlpha=1;
+}
+
+/* ============ 互動 ============ */
+const pointers=new Map(); let gesture=null;
+function hitToken(wx,wy){
+  const list=Object.entries(S.tokens).filter(([,t])=>tokenSeen(t)).sort((a,b)=>(FOOT[a[1].size]||1)-(FOOT[b[1].size]||1));
+  const minR = 20 / S.view.s;
+  for (const [id,t] of list){ const f=FOOT[t.size]||1; if (Math.hypot(wx-(t.x+f/2), wy-(t.y+f/2)) <= Math.max(f/2*0.9, Math.min(minR, f*0.75))) return id; }
+  return null;
+}
+function hitTemplate(wx,wy){ const cx=Math.floor(wx), cy=Math.floor(wy); for (const [id,t] of Object.entries(S.templates).reverse()) if (tplCells(effT(id,t)).some(([x,y])=>x===cx&&y===cy)) return id; return null; }
+let holdTimer=0;
+function startHoldTimer(){ clearInterval(holdTimer); holdTimer=setInterval(()=>{
+  if (!gesture || gesture.type!=="tplmove"){ clearInterval(holdTimer); return; }
+  if (gesture.holdTid && !gesture.bindTo && performance.now()-gesture.holdStart>=3000){ gesture.bindTo=gesture.holdTid; try{ navigator.vibrate && navigator.vibrate(40); }catch{} }
+  if (gesture.holdTid) draw();
+}, 60); }
+function snapToken(t, wx, wy){
+  const f=FOOT[t.size]||1, {cols,rows}=S.cfg;
+  if (f<1) return [clamp(Math.round((wx-f/2)*2)/2,0,cols-f), clamp(Math.round((wy-f/2)*2)/2,0,rows-f)];
+  return [clamp(Math.round(wx-f/2),0,cols-f), clamp(Math.round(wy-f/2),0,rows-f)];
+}
+const panG = e => ({type:"pan",x:e.offsetX,y:e.offsetY,vx:S.view.x,vy:S.view.y});
+let lastDragSent="";
+function sendDrag(v){ if (!S.online) return; const k=v?`${v.id},${v.x},${v.y}`:""; if (k===lastDragSent) return; lastDragSent=k; const r=ref(`${R}/presence/${S.me}/drag`); (v?r.set(v):r.remove()).catch(()=>{}); }
+
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId,{x:e.offsetX,y:e.offsetY});
+  if (pointers.size===2){ cancelGesture(); const [a,b]=[...pointers.values()]; gesture={type:"pinch",d:Math.hypot(a.x-b.x,a.y-b.y)||1,mx:(a.x+b.x)/2,my:(a.y+b.y)/2,s:S.view.s,vx:S.view.x,vy:S.view.y}; return; }
+  if (pointers.size>2) return;
+  const [wx,wy]=s2w(e.offsetX,e.offsetY), tool=S.tool;
+  if (e.button===1 || e.button===2){ gesture=panG(e); return; }
+  if (tool==="select"){
+    const st=S.selTpl && S.templates[S.selTpl];
+    if (st && canDeleteTpl(st)){
+      const g=effT(S.selTpl,st), [hx,hy]=tplHandle(g);
+      if (Math.hypot((hx-wx)*S.view.s,(hy-wy)*S.view.s) <= 28){ gesture={type:"tplrot",id:S.selTpl}; S.tplDrag={id:S.selTpl,geom:normT(st)}; draw(); return; }
+      const cx=Math.floor(wx), cy=Math.floor(wy);
+      if (tplCells(g).some(([x,y])=>x===cx&&y===cy)){
+        gesture={type:"tplmove",id:S.selTpl,sx:wx,sy:wy,orig:normT(st),moved:false,px:e.offsetX,py:e.offsetY,holdTid:null,holdStart:0,bindTo:null};
+        S.tplDrag={id:S.selTpl,geom:normT(st)}; startHoldTimer(); return;
+      }
+    }
+    const id=hitToken(wx,wy);
+    if (id){
+      const wasSel=S.sel===id; S.sel=id; S.selTpl=null; const t=S.tokens[id];
+      if (canControl(t)){ S.drag={id,ox:wx-t.x,oy:wy-t.y,x:t.x,y:t.y,startX:t.x,startY:t.y,moved:false,px:e.offsetX,py:e.offsetY,wasSel}; gesture={type:"drag"}; }
+      else { gesture=panG(e); gesture.tapDeselect=wasSel; gesture.tap=true; }
+      renderPanel(); draw(); return;
+    }
+    const selT=S.sel && S.tokens[S.sel];
+    if (selT && canControl(selT)){ gesture={...panG(e),tap:true,moveTo:[wx,wy]}; return; }
+    const tid=hitTemplate(wx,wy); S.sel=null; S.selTpl=tid||null; renderPanel(); draw();
+    gesture=panG(e); return;
+  }
+  if (tool==="ruler"){ const x=Math.floor(wx), y=Math.floor(wy); S.ruler={x0:x,y0:y,x1:x,y1:y}; gesture={type:"ruler"}; draw(); return; }
+  if (["circle","cone","line","rect"].includes(tool)){
+    const color=myColor();
+    if (tool==="rect"){ const x=Math.floor(wx), y=Math.floor(wy); S.draft={shape:"rect",x0:x,y0:y,x1:x,y1:y,color}; }
+    else { const ox = tool==="circle"? Math.round(wx) : Math.round(wx*2)/2, oy = tool==="circle"? Math.round(wy) : Math.round(wy*2)/2;
+      S.draft={shape:tool,ox,oy,ang:0,len:S.cfg.meters,spread:S.coneAngle,width:1,color}; }
+    gesture={type:"tpl",sx:wx,sy:wy,moved:false}; draw(); return;
+  }
+  if ((tool==="walls"||tool==="reveal") && S.isGM){
+    const x=Math.floor(wx), y=Math.floor(wy), {cols,rows}=S.cfg; if(x<0||y<0||x>=cols||y>=rows){ gesture=panG(e); return; }
+    S.paint={mode:tool,value:!bitGet(ensureBits(S.cfg[tool]),y*cols+x),cells:new Set([x+","+y])}; gesture={type:"paint"}; draw(); return;
+  }
+  gesture=panG(e);
+});
+cv.addEventListener("pointermove", e => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId,{x:e.offsetX,y:e.offsetY});
+  if (!gesture) return;
+  const [wx,wy]=s2w(e.offsetX,e.offsetY);
+  if (gesture.type==="pinch" && pointers.size>=2){
+    const [a,b]=[...pointers.values()], d=Math.hypot(a.x-b.x,a.y-b.y), mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    const ns=clamp(gesture.s*d/gesture.d, 8, 140), k=ns/gesture.s;
+    S.view.s=ns; S.view.x=mx-(gesture.mx-gesture.vx)*k; S.view.y=my-(gesture.my-gesture.vy)*k; draw(); return;
+  }
+  if (gesture.type==="pan"){ S.view.x=gesture.vx+e.offsetX-gesture.x; S.view.y=gesture.vy+e.offsetY-gesture.y; if(Math.hypot(e.offsetX-gesture.x,e.offsetY-gesture.y)>6) gesture.tap=false; draw(); return; }
+  if (gesture.type==="drag" && S.drag){
+    if (!S.drag.moved && Math.hypot(e.offsetX-S.drag.px,e.offsetY-S.drag.py)<6) return;
+    S.drag.moved=true;
+    const t=S.tokens[S.drag.id]; if(!t) return; const f=FOOT[t.size]||1;
+    const [x,y]=snapToken(t, wx-S.drag.ox+f/2, wy-S.drag.oy+f/2);
+    if (x!==S.drag.x || y!==S.drag.y){ S.drag.x=x; S.drag.y=y; sendDrag({id:S.drag.id,x,y}); }
+    draw(); return;
+  }
+  if (gesture.type==="ruler"){ S.ruler.x1=Math.floor(wx); S.ruler.y1=Math.floor(wy); draw(); return; }
+  if (gesture.type==="tplmove"){
+    if (!gesture.moved && Math.hypot(e.offsetX-gesture.px,e.offsetY-gesture.py)<6) return;
+    gesture.moved=true;
+    const o=gesture.orig, step=(o.shape==="rect"||o.shape==="circle")?1:0.5;
+    const dx=Math.round((wx-gesture.sx)/step)*step, dy=Math.round((wy-gesture.sy)/step)*step;
+    S.tplDrag={id:gesture.id, geom:shiftT(o,dx,dy)};
+    const tid=hitToken(wx,wy);
+    if (tid!==gesture.holdTid){ gesture.holdTid=tid; gesture.holdStart=performance.now(); gesture.bindTo=null; }
+    draw(); return;
+  }
+  if (gesture.type==="tplrot"){
+    const st=S.templates[gesture.id]; if(!st) return;
+    const base=normT(st), [bx,by]=bindShift(base), ng={...base};
+    if (base.shape==="rect"){ const st15=Math.PI/12; ng.ang=Math.round(Math.atan2(wy-(base.cy+by),wx-(base.cx+bx))/st15)*st15; }
+    else { const dx=wx-(base.ox+bx), dy=wy-(base.oy+by); ng.len=Math.max(1,Math.round(Math.hypot(dx,dy)))*S.cfg.meters; if (base.shape!=="circle") ng.ang=Math.round(Math.atan2(dy,dx)/(Math.PI/24))*(Math.PI/24); }
+    S.tplDrag={id:gesture.id, geom:ng}; draw(); return;
+  }
+  if (gesture.type==="tpl" && S.draft){
+    const t=S.draft;
+    if (Math.hypot(wx-gesture.sx, wy-gesture.sy) > 0.35) gesture.moved=true;
+    if (t.shape==="rect"){ t.x1=clamp(Math.floor(wx),0,S.cfg.cols-1); t.y1=clamp(Math.floor(wy),0,S.cfg.rows-1); }
+    else { const dx=wx-t.ox, dy=wy-t.oy; t.len=Math.max(1,Math.round(Math.hypot(dx,dy)))*S.cfg.meters; if (Math.hypot(dx,dy)>0.2) t.ang = t.shape==="circle" ? 0 : Math.round(Math.atan2(dy,dx)/(Math.PI/24))*(Math.PI/24); }
+    draw(); return;
+  }
+  if (gesture.type==="paint" && S.paint){ const x=Math.floor(wx), y=Math.floor(wy), {cols,rows}=S.cfg; if(x>=0&&y>=0&&x<cols&&y<rows){ S.paint.cells.add(x+","+y); draw(); } }
+});
+function endPointer(e){
+  pointers.delete(e.pointerId);
+  if (!gesture) return;
+  if (gesture.type==="pinch"){ if (pointers.size===0) gesture=null; return; }
+  if (gesture.type==="drag" && S.drag){
+    const d=S.drag; S.drag=null;
+    if (d.moved && (d.x!==d.startX || d.y!==d.startY)) patchToken(d.id,{x:d.x,y:d.y});
+    if (!d.moved && d.wasSel){ S.sel=null; renderPanel(); }
+    sendDrag(null);
+  }
+  if (gesture.type==="pan" && gesture.tap){
+    if (gesture.tapDeselect){ S.sel=null; renderPanel(); }
+    if (gesture.moveTo){ const t=S.tokens[S.sel];
+      if (t && canControl(t)){ const [x,y]=snapToken(t, gesture.moveTo[0], gesture.moveTo[1]);
+        if (x!==t.x || y!==t.y){ const dist=gridDist(x-t.x,y-t.y); patchToken(S.sel,{x,y}); toast(`移動 ${fmtM(dist)}`); } } }
+  }
+  if (gesture.type==="tpl" && S.draft){
+    const t=S.draft; S.draft=null;
+    if (!gesture.moved) toast("按住後拖曳，拉出範圍大小");
+    else { const id=uid(); putTemplate(id,{...normT(t), ownerId:S.me, at:Date.now()}); S.selTpl=id; S.sel=null; S.tool="select"; renderTools(); renderPanel();
+      toast("已切回選取：拖曳可移動，拖白點可旋轉，拖到棋子上停 3 秒可綁定"); }
+  }
+  if (gesture.type==="tplmove" || gesture.type==="tplrot"){
+    clearInterval(holdTimer);
+    const td=S.tplDrag; S.tplDrag=null; const st=S.templates[gesture.id];
+    if (td && st){
+      let g=td.geom;
+      if (gesture.type==="tplrot" && g.shape==="rect") g=snapRectCenter(g);
+      const tk=gesture.bindTo && S.tokens[gesture.bindTo];
+      if (tk){
+        const f=FOOT[tk.size]||1, [bx,by]=bindShift(g);
+        g=shiftT(g,bx,by);
+        if (g.shape!=="rect") g={...g, ox:tk.x+f/2, oy:tk.y+f/2};
+        g={...g, bind:{tid:gesture.bindTo, ax:tk.x, ay:tk.y}};
+        putTemplate(gesture.id, g); toast(`已綁定到「${tk.name}」，會跟著它移動`);
+      } else if (gesture.type==="tplrot" || gesture.moved) putTemplate(gesture.id, g);
+    }
+    renderPanel();
+  }
+  if (gesture.type==="paint" && S.paint){
+    const {mode,value,cells}=S.paint; S.paint=null;
+    const {cols}=S.cfg, arr=ensureBits(S.cfg[mode]).split("");
+    for (const k of cells){ const [x,y]=k.split(",").map(Number); arr[y*cols+x]=value?"1":"0"; }
+    patchCfg({[mode]:arr.join("")});
+  }
+  gesture=null; draw();
+}
+function cancelGesture(){ if (S.drag){ S.drag=null; sendDrag(null); } clearInterval(holdTimer); S.tplDrag=null; S.draft=null; S.paint=null; gesture=null; }
+function unbindTpl(id){ const st=S.templates[id]; if(!st) return; let g=normT(st); const [bx,by]=bindShift(g); g=shiftT(g,bx,by); delete g.bind; putTemplate(id,g); toast("已解除綁定"); renderPanel(); }
+function addDefaultPCs(){
+  const n=Object.values(S.tokens).filter(t=>/^角色\d+$/.test(t.name||"")).length+1;
+  const free=[]; for (const [id,t] of Object.entries(defaultPCs(n))){ let y=2; while (y<S.cfg.rows-1 && Object.values(S.tokens).some(o=>Math.abs(o.x-t.x)<1&&Math.abs(o.y-y)<1)) y++; putToken(id,{...t,y:Math.min(y,S.cfg.rows-1),x:Math.min(t.x,S.cfg.cols-1)}); free.push(id); }
+  toast("已新增 5 個可認領角色");
+}
+function deleteTokenFull(id){ removeFromCombat(id); for (const [tid,t] of Object.entries(S.templates)) if (t.bind && t.bind.tid===id) delTemplate(tid); delToken(id); }
+cv.addEventListener("pointerup", endPointer);
+cv.addEventListener("pointercancel", endPointer);
+cv.addEventListener("contextmenu", e=>e.preventDefault());
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  const ns=clamp(S.view.s*Math.exp(-e.deltaY*0.0015),8,140), r=ns/S.view.s;
+  S.view.x=e.offsetX-(e.offsetX-S.view.x)*r; S.view.y=e.offsetY-(e.offsetY-S.view.y)*r; S.view.s=ns; draw();
+},{passive:false});
+window.addEventListener("keydown", e => {
+  if (e.target.matches("input,select,textarea") || $("#modal").classList.contains("open")) return;
+  if (e.key==="Delete"||e.key==="Backspace"){
+    if (S.selTpl && canDeleteTpl(S.templates[S.selTpl])) { delTemplate(S.selTpl); S.selTpl=null; renderPanel(); }
+    else if (S.sel && canDeleteToken(S.tokens[S.sel])) { deleteTokenFull(S.sel); renderPanel(); }
+  }
+  if (e.key==="Escape"){ S.ruler=null; S.sel=null; cancelGesture(); renderPanel(); draw(); }
+});
+function myColor(){ const mine=Object.values(S.tokens).find(t=>t.ownerId===S.me); return mine?.color || (S.isGM?"#d0602f":"#3f8f96"); }
+
+/* ============ 選取列 / 縮放 ============ */
+let selbarKey="";
+function renderSelbar(){
+  const t=S.sel && S.tokens[S.sel];
+  const tp=!t && S.selTpl && S.templates[S.selTpl];
+  const key = t ? ["t",S.sel,t.name,canControl(t)].join("|") : tp ? ["p",S.selTpl,tp.bind?tp.bind.tid:"",tp.len,tp.w,tp.h,tp.x1,tp.y1,canDeleteTpl(tp)].join("|") : "";
+  if (key===selbarKey) return; selbarKey=key;
+  const el=$("#selbar");
+  if (tp){ const ed=canDeleteTpl(tp), bn=tp.bind&&S.tokens[tp.bind.tid];
+    el.innerHTML=`<span class="nm">${esc(tplLabel(tp))}</span>${ed&&!bn?'<span class="hint">可拖曳</span>':""}${ed&&bn?`<button class="btn" data-sb="unbind">解除綁定</button>`:""}${ed?`<button class="btn warn" data-sb="deltpl">刪除</button>`:""}<button class="btn" data-sb="clear">取消</button>`;
+    el.classList.add("open"); return; }
+  if (!t){ el.classList.remove("open"); el.innerHTML=""; return; }
+  el.innerHTML=`<span class="nm">${esc(t.name)}</span>${canControl(t)?'<span class="hint">點格子移動</span>':""}<button class="btn" data-sb="detail">詳細</button><button class="btn" data-sb="clear">取消</button>`;
+  el.classList.add("open");
+}
+$("#selbar").addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b) return;
+  if (b.dataset.sb==="detail") openSheet("token");
+  if (b.dataset.sb==="unbind") unbindTpl(S.selTpl);
+  if (b.dataset.sb==="deltpl" && canDeleteTpl(S.templates[S.selTpl])){ delTemplate(S.selTpl); S.selTpl=null; renderPanel(); }
+  if (b.dataset.sb==="clear"){ S.sel=null; S.selTpl=null; renderPanel(); draw(); } });
+$("#zoom").addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b) return;
+  const r=cv.getBoundingClientRect(), ns=clamp(S.view.s*(+b.dataset.z),8,140), q=ns/S.view.s, cx=r.width/2, cy=r.height/2;
+  S.view.x=cx-(cx-S.view.x)*q; S.view.y=cy-(cy-S.view.y)*q; S.view.s=ns; draw(); });
+
+/* ============ 工具列 ============ */
+const ICONS = {
+  select:'<path d="M5 3l14 8-6 1.5L10 19z" fill="currentColor"/>',
+  ruler:'<path d="M3 17L17 3l4 4L7 21z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2" stroke="currentColor" stroke-width="1.6"/>',
+  circle:'<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/>',
+  cone:'<path d="M4 12L20 4a11 11 0 010 16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  rect:'<rect x="4" y="6" width="16" height="12" fill="none" stroke="currentColor" stroke-width="2"/>',
+  line:'<path d="M4 18L18 4" stroke="currentColor" stroke-width="5" stroke-linecap="square" opacity=".85"/>',
+  walls:'<path d="M3 6h18M3 12h18M3 18h18M8 6v6M16 6v6M12 12v6" stroke="currentColor" stroke-width="2"/>',
+  reveal:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="currentColor"/>',
+  add:'<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4"/>',
+  center:'<path d="M12 3v4M12 17v4M3 12h4M17 12h4" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/>',
+  clear:'<path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2"/>',
+};
+const svg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg>`;
+function renderTools(){
+  const T=[["select","選取"],["ruler","量尺"],null,["circle","圓形"],["cone","錐形",`${S.coneAngle}°`],["rect","矩形"],["line","直線"]];
+  let h="";
+  for (const t of T){ if(!t){ h+='<span class="divider"></span>'; continue; }
+    h+=`<button class="tool" data-tool="${t[0]}" aria-pressed="${S.tool===t[0]}">${svg(t[0])}<span>${t[1]}</span>${t[2]?`<span class="sub num">${t[2]}</span>`:""}</button>`; }
+  h+='<span class="divider"></span>';
+  if (S.isGM) for (const t of [["walls","牆壁"],["reveal","揭露區"]]) h+=`<button class="tool gmonly" data-tool="${t[0]}" aria-pressed="${S.tool===t[0]}">${svg(t[0])}<span>${t[1]}</span></button>`;
+  h+=`<button class="tool${S.isGM?" gmonly":""}" data-act="add">${svg("add")}<span>${S.isGM?"新增棋子":"新增召喚"}</span></button>`;
+  h+='<span class="divider"></span>';
+  h+=`<button class="tool" data-act="clearTpl">${svg("clear")}<span>${S.isGM?"清除範圍":"清我的範圍"}</span></button>`;
+  h+=`<button class="tool" data-act="center">${svg("center")}<span>置中</span></button>`;
+  $("#tools").innerHTML=h;
+}
+$("#tools").addEventListener("click", e => {
+  const b=e.target.closest("button"); if(!b) return;
+  if (b.dataset.tool){
+    const t=b.dataset.tool;
+    if (t==="cone" && S.tool==="cone"){ S.coneAngle = S.coneAngle===90?60:S.coneAngle===60?53:90; toast(`錐形角度 ${S.coneAngle}°`); }
+    S.tool=t; if(t!=="ruler") S.ruler=null; renderTools(); draw(); return;
+  }
+  const a=b.dataset.act;
+  if (a==="add") addToken();
+  if (a==="center") fitView();
+  if (a==="clearTpl"){
+    const ids=Object.entries(S.templates).filter(([,t])=>canDeleteTpl(t)).map(([id])=>id);
+    if (!ids.length) { toast("沒有可清除的範圍"); return; }
+    ids.forEach(delTemplate); S.selTpl=null; renderPanel(); toast(`已清除 ${ids.length} 個範圍`);
+  }
+});
+function fitView(){
+  const r=cv.getBoundingClientRect(), {cols,rows}=S.cfg; if(!r.width) return;
+  let s=clamp(Math.min((r.width-24)/cols,(r.height-24)/rows),8,90);
+  if (s<30 && r.width<700) s=30; // 手機上不要縮到太小，可再用雙指縮放
+  S.view.s=s; S.view.x=(r.width-cols*s)/2; S.view.y=(r.height-rows*s)/2; draw();
+}
+function addToken(){
+  const r=cv.getBoundingClientRect(); let [wx,wy]=s2w(r.width/2,r.height/2);
+  const n=Object.keys(S.tokens).length;
+  const t={name:`棋子${n+1}`,size:"medium",color:PALETTE[n%PALETTE.length],vision:20,claimable:false,hidden:false,at:Date.now(),createdBy:S.me};
+  if (!S.isGM){
+    const mine=Object.values(S.tokens).filter(x=>x.ownerId===S.me);
+    const base=mine.find(x=>x.createdBy!==S.me)||mine[0];
+    const cnt=Object.values(S.tokens).filter(isCreator).length;
+    Object.assign(t,{ownerId:S.me, ownerName:S.myName, name:`${base?base.name:S.myName||"我"}的召喚${cnt+1}`, color:base?base.color:t.color, size:"small"});
+    if (base){ const f=FOOT[base.size]||1; wx=base.x+f+0.5; wy=base.y+f/2; }
+  }
+  [t.x,t.y]=snapToken(t,wx,wy);
+  const id=uid(); putToken(id,t); S.sel=id; S.tool="select"; renderTools(); openSheet("token");
+}
+
+/* ============ 面板 ============ */
+$("#btnPanel").onclick=()=>{ $("#sheet").classList.contains("open") ? closeSheet() : openSheet(S.tab); };
+$("#btnPreview").onclick=()=>{ S.preview=!S.preview; $("#btnPreview").setAttribute("aria-pressed",S.preview); visCache.key=null; draw(); };
+function openSheet(tab){ S.tab=tab||S.tab; $("#sheet").classList.add("open"); renderPanel(); }
+function closeSheet(){ $("#sheet").classList.remove("open"); }
+function tabsFor(){ const t=[["token","棋子"],["init","回合"],["players","認領"]]; if (S.isGM) t.push(["map","地圖"],["saves","存檔"]); return t; }
+let panelDirty=false;
+function renderPanel(){
+  if (!$("#sheet").classList.contains("open")) return;
+  const ae=document.activeElement;
+  if (ae && $("#sheetBody").contains(ae) && ae.matches("input[type=text],input[type=number]")) { panelDirty=true; return; }
+  panelDirty=false;
+  const tabs=tabsFor(); if(!tabs.some(t=>t[0]===S.tab)) S.tab="token";
+  $("#tabs").innerHTML = tabs.map(([k,n])=>`<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${n}</button>`).join("") + `<button class="close" aria-label="關閉面板" data-close>×</button>`;
+  const body=$("#sheetBody");
+  body.innerHTML = S.tab==="token"?panelToken() : S.tab==="players"?panelPlayers() : S.tab==="init"?panelInit() : S.tab==="map"?panelMap() : panelSaves();
+}
+$("#tabs").addEventListener("click", e => { const b=e.target.closest("button"); if(!b) return; if (b.dataset.close!==undefined) return closeSheet(); S.tab=b.dataset.tab; renderPanel(); });
+function onlineIds(){ return Object.entries(S.peers).filter(([id,p])=>id!==S.me && p && p.name).map(([id])=>id); }
+function ownerOptions(cur){
+  const on=new Set(onlineIds());
+  const ids=[...new Set([...on, ...Object.values(S.tokens).map(t=>t.ownerId), cur].filter(Boolean))];
+  let h=`<option value="">（無人，GM 控制）</option>`;
+  for (const id of ids) h+=`<option value="${esc(id)}" ${id===cur?"selected":""}>${esc(id===S.me?"你自己":nameOf(id))}${on.has(id)?"（在線）":""}</option>`;
+  return h;
+}
+function panelToken(){
+  let h="";
+  if (S.selTpl && S.templates[S.selTpl]){
+    const t=S.templates[S.selTpl], bn=t.bind&&S.tokens[t.bind.tid], ed=canDeleteTpl(t);
+    h+=`<h3>選取的範圍</h3><div class="item"><span class="dot" style="background:${esc(t.color)}"></span><span class="nm">${esc(tplLabel(t))}${bn?`<br><span class="meta">綁定在「${esc(bn.name)}」</span>`:""}</span>${ed&&bn?`<button class="btn" data-act="unbindTpl">解除綁定</button>`:""}${ed?`<button class="btn warn" data-act="delTpl">刪除</button>`:""}</div>
+    ${ed?`<p class="hint">拖曳範圍可移動。拖白色圓點可旋轉（圓形是調整半徑，錐形和直線也能拉長縮短）。把範圍拖到棋子上停 3 秒就會綁定，之後跟著棋子走。</p>`:""}`;
+  }
+  const t=S.sel && S.tokens[S.sel];
+  if (t){
+    const dis = canControl(t) ? "" : "disabled", pdis = canEditProps(t) ? "" : "disabled";
+    h+=`<h3>${S.isGM?"編輯棋子":(t.ownerId===S.me?"我的棋子":"棋子資訊")}</h3>
+    <div class="row"><label for="tName">名字</label><input type="text" id="tName" value="${esc(t.name)}" maxlength="24" ${dis}></div>
+    <div class="row"><label for="tSize">體型</label><select id="tSize" ${pdis}>${SIZES.map(s=>`<option value="${s.k}" ${t.size===s.k?"selected":""}>${s.n}（${s.f<1?"共用格":s.f+"×"+s.f+"格"}）</option>`).join("")}</select></div>
+    <div class="row"><label for="tColor">顏色</label><input type="color" id="tColor" value="${esc(t.color)}" ${dis}>
+      <label for="tVis" style="min-width:auto;margin-left:8px">視野</label><input type="number" inputmode="decimal" id="tVis" class="num" min="0" max="400" step="${S.cfg.meters}" value="${+t.vision||0}" ${pdis}><span class="hint">米</span></div>`;
+    if (S.isGM){
+      h+=`<label class="switch"><input type="checkbox" id="tClaim" ${t.claimable?"checked":""}>開放玩家認領</label>
+      <label class="switch"><input type="checkbox" id="tHidden" ${t.hidden?"checked":""}>對玩家隱藏</label>
+      <div class="row"><label for="tOwner">控制者</label><select id="tOwner">${ownerOptions(t.ownerId)}</select></div>
+      <p class="hint">玩家換手機又忘了取回碼時，可以在這裡直接交給在線的玩家。</p>
+      <div class="row"><button class="btn" data-act="dup">複製</button><button class="btn warn" data-act="delTok">刪除</button></div>`;
+    } else if (t.ownerId===S.me){
+      h+= isCreator(t) ? `<div class="row"><button class="btn warn" data-act="delTok">移除這個召喚</button></div>` : `<div class="row"><button class="btn" data-act="releaseId" data-id="${S.sel}">放棄這個棋子</button></div>`;
+    } else if (t.claimable && !t.ownerId){
+      h+=`<div class="row"><button class="btn primary" data-act="claim" data-id="${S.sel}">認領這個棋子</button></div>`;
+    }
+    if (S.isGM || t.ownerId===S.me){
+      h+= (S.combat.order||[]).some(e=>e.tid===S.sel) ? `<p class="hint">已在回合順序中</p>` : `<div class="row"><button class="btn" data-act="addInit" data-id="${S.sel}">加入回合順序</button></div>`;
+    }
+  } else if (!S.selTpl) h+=`<p class="empty">點地圖上的棋子查看或編輯。${S.isGM?"用下方「新增棋子」放一個到地圖中央。":""}</p>`;
+  const list=Object.entries(S.tokens).filter(([,t])=>S.isGM||tokenSeen(t));
+  if (list.length) h+=`<h3>地圖上的棋子</h3><div class="list">`+list.map(([id,t])=>`<div class="item"><span class="dot" style="background:${esc(t.color)}"></span><span class="nm">${esc(t.name)}${t.hidden?' <span class="meta">（隱藏）</span>':""}</span><span class="meta">${t.ownerId?esc(nameOf(t.ownerId)):(t.claimable?"可認領":"")}</span><button class="btn" data-act="focus" data-id="${id}">定位</button></div>`).join("")+`</div>`;
+  return h;
+}
+function panelPlayers(){
+  const mine=Object.entries(S.tokens).filter(([,t])=>t.ownerId===S.me);
+  const open=Object.entries(S.tokens).filter(([,t])=>t.claimable&&!t.ownerId&&!t.hidden);
+  const others=Object.entries(S.tokens).filter(([,t])=>t.ownerId&&t.ownerId!==S.me&&!t.hidden);
+  let h="";
+  if (S.isGM) h+=`<p class="hint">你是 GM，可以移動所有棋子。在棋子面板勾選「開放玩家認領」後，玩家就能在這裡挑一個。</p><div class="row"><button class="btn gm" data-act="addPCs">新增 5 個可認領角色</button></div>`;
+  else h+=`<div class="row"><label>你的名字</label><span><b>${esc(S.myName||"未設定")}</b></span><button class="btn" data-act="rename">改名</button></div>`;
+  h+=`<h3>我的棋子</h3>`;
+  h+= mine.length ? `<div class="list">`+mine.map(([id,t])=>`<div class="item"><span class="dot" style="background:${esc(t.color)}"></span><span class="nm">${esc(t.name)}${isCreator(t)?' <span class="meta">（召喚）</span>':""}</span><button class="btn" data-act="focus" data-id="${id}">定位</button>${isCreator(t)?"":`<button class="btn" data-act="releaseId" data-id="${id}">放棄</button>`}</div>`).join("")+`</div>` : `<p class="empty">還沒有。從下面挑一個認領。</p>`;
+  h+=`<p class="hint">同一支手機或電腦再進來，棋子會自動還是你的。換裝置時，到下面「其他人的棋子」按「取回」並輸入取回碼。認錯了就按「放棄」再重選。</p>`;
+  h+=`<h3>可認領的棋子</h3>`;
+  h+= open.length ? `<div class="list">`+open.map(([id,t])=>`<div class="item"><span class="dot" style="background:${esc(t.color)}"></span><span class="nm">${esc(t.name)}</span><span class="meta">${esc(SIZES.find(s=>s.k===t.size)?.n||"")}</span><button class="btn primary" data-act="claim" data-id="${id}">認領</button></div>`).join("")+`</div>` : `<p class="empty">GM 還沒開放任何棋子。</p>`;
+  if (others.length){ h+=`<h3>其他人的棋子</h3><div class="list">`+others.map(([id,t])=>`<div class="item"><span class="dot" style="background:${esc(t.color)}"></span><span class="nm">${esc(t.name)}</span><span class="meta">${esc(nameOf(t.ownerId))}${S.peers[t.ownerId]?"・在線":""}</span>${!S.isGM&&t.pinHash?`<button class="btn" data-act="reclaim" data-id="${id}">取回</button>`:""}</div>`).join("")+`</div>`; }
+  return h;
+}
+function entryTok(e){ return e.tid ? S.tokens[e.tid] : null; }
+function entryName(e){ const t=entryTok(e); return t ? t.name : (e.name || "已移除"); }
+function entryHidden(e){ const t=entryTok(e); return !!(t && t.hidden); }
+function isMineEntry(e){ const t=entryTok(e); return !!(t && t.ownerId===S.me); }
+function canEditEntry(e){ return S.isGM || isMineEntry(e) || e.by===S.me; }
+function panelInit(){
+  const c=S.combat, order=c.order||[], cur=currentEntry();
+  const curName = cur ? (entryHidden(cur)&&!S.isGM ? "？？？" : entryName(cur)) : "";
+  let h=`<div class="row"><span class="num" style="font-size:22px;font-weight:600">第 ${c.round||1} 輪</span><span class="hint">${order.length?`輪到：<b>${esc(curName)}</b>`:"還沒有人加入"}</span></div>`;
+  if (S.isGM) h+=`<div class="row"><button class="btn" data-act="initPrev" ${order.length?"":"disabled"}>上一位</button><button class="btn gm" data-act="initNext" ${order.length?"":"disabled"}>下一位</button><button class="btn" data-act="initSort" ${order.length>1?"":"disabled"}>依先攻排序</button></div>`;
+  else if (cur && isMineEntry(cur)) h+=`<div class="row"><button class="btn primary" data-act="initNext">結束我的回合</button></div>`;
+  h+=`<h3>順序</h3>`;
+  const rows=order.map((e,i)=>({e,i})).filter(({e})=>S.isGM||!entryHidden(e));
+  if (!rows.length) h+=`<p class="empty">${S.isGM?"把棋子加進來，填好先攻再排序。":"GM 還沒開始排回合。"}</p>`;
+  else h+=`<div class="list">`+rows.map(({e,i})=>{
+    const t=entryTok(e), ed=canEditEntry(e), now=i===c.turn;
+    return `<div class="item" style="${now?"border:2px solid var(--brass)":""}"><span class="num meta" style="width:18px;text-align:right">${now?"▶":i+1}</span><span class="dot" style="background:${esc(t?t.color:"#888")}"></span><span class="nm">${esc(entryName(e))}${entryHidden(e)?' <span class="meta">（隱藏）</span>':""}</span><input type="number" inputmode="numeric" class="num" style="width:62px" data-ini="${i}" value="${e.init??""}" placeholder="先攻" aria-label="先攻" ${ed?"":"disabled"}>${S.isGM?`<button class="btn" data-act="initUp" data-i="${i}" aria-label="上移" ${i?"":"disabled"}>↑</button><button class="btn" data-act="initDown" data-i="${i}" aria-label="下移" ${i<order.length-1?"":"disabled"}>↓</button>`:""}${ed?`<button class="btn warn" data-act="initRemove" data-i="${i}" aria-label="移出順序">×</button>`:""}</div>`;
+  }).join("")+`</div>`;
+  const inOrder=new Set(order.map(e=>e.tid).filter(Boolean));
+  const addable=Object.entries(S.tokens).filter(([id,t])=>!inOrder.has(id) && (S.isGM || t.ownerId===S.me));
+  h+=`<h3>加入</h3>`;
+  h+= addable.length ? `<div class="list">`+addable.map(([id,t])=>`<div class="item"><span class="dot" style="background:${esc(t.color)}"></span><span class="nm">${esc(t.name)}</span><button class="btn" data-act="addInit" data-id="${id}">加入</button></div>`).join("")+`</div>` : `<p class="empty">${S.isGM?"地圖上的棋子都已加入。":"你的棋子都已加入。"}</p>`;
+  if (S.isGM){
+    h+=`${addable.length>1?`<div class="row"><button class="btn" data-act="initAddAll">全部加入</button></div>`:""}
+    <div class="row"><input type="text" id="iCustom" placeholder="不在地圖上的項目，例如：毒霧擴散" maxlength="24" aria-label="自訂項目名稱"><button class="btn" data-act="initCustom">加入</button></div>
+    <h3>結束戰鬥</h3><div class="row"><button class="btn warn" data-act="initReset">清空順序並回到第 1 輪</button></div>`;
+  }
+  return h;
+}
+function panelMap(){
+  const c=S.cfg;
+  return `<h3>格子</h3>
+  <div class="row"><label for="mCols">寬</label><input type="number" inputmode="numeric" class="num" id="mCols" min="4" max="${MAX_GRID}" value="${c.cols}"><label for="mRows" style="min-width:auto">高</label><input type="number" inputmode="numeric" class="num" id="mRows" min="4" max="${MAX_GRID}" value="${c.rows}"><span class="hint">格</span></div>
+  <div class="row"><label for="mMeters">每格</label><input type="number" inputmode="decimal" class="num" id="mMeters" min="0.5" max="100" step="0.5" value="${c.meters}"><span class="hint">米（本規則預設 2 米）</span></div>
+  <div class="row"><button class="btn" data-act="applyGrid">套用格子大小</button></div>
+  <h3>戰爭迷霧</h3>
+  <label class="switch"><input type="checkbox" id="mFog" ${c.fog?"checked":""}>開啟戰爭迷霧</label>
+  <label class="switch"><input type="checkbox" id="mShare" ${c.shareVision?"checked":""}>玩家共享隊伍視野</label>
+  <p class="hint">玩家只看得到自己棋子視野內、沒被牆壁擋住的格子，以及「揭露區」塗開的地方。按上方「玩家視角」可預覽。</p>
+  <div class="row"><button class="btn" data-act="clearWalls">清除全部牆壁</button><button class="btn" data-act="clearReveal">清除揭露區</button></div>
+  <h3>地圖底圖</h3>
+  <div class="row"><input type="file" id="mBg" accept="image/*" aria-label="選擇底圖圖片"></div>
+  <p class="hint">圖片會自動壓縮後存進房間。</p>
+  ${c.bgId?`<div class="row"><button class="btn" data-act="fitBg">依圖片比例調整高度</button><button class="btn warn" data-act="rmBg">移除底圖</button></div>`:""}
+  <h3>房間</h3>
+  <div class="row"><input type="text" id="mTitle" value="${esc(c.title||"")}" maxlength="40" aria-label="地圖名稱"><button class="btn" data-act="saveTitle">改名</button></div>
+  ${S.online?`<p class="hint">房間代碼 <span class="code">${esc(S.room)}</span></p><div class="row"><button class="btn" data-act="changePw">更改 GM 密碼</button><button class="btn" data-act="leave">離開房間</button></div>`:""}`;
+}
+function panelSaves(){
+  let h=`<p class="hint">地圖、棋子、範圍、回合都會自動保存，下次打開會在原處。這裡可以把目前戰場另存一份，之後隨時載回來。</p>
+  <div class="row"><input type="text" id="sName" placeholder="例如：第三章・倉庫伏擊" maxlength="40" aria-label="存檔名稱"><button class="btn gm" data-act="save">另存</button></div>`;
+  h+= S.saves.length ? `<div class="list">`+S.saves.map(s=>`<div class="item"><span class="nm">${esc(s.name)}<br><span class="meta num">${new Date(s.at).toLocaleString("zh-TW",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})} · ${Object.keys(s.tokens||{}).length} 棋子</span></span><button class="btn" data-act="load" data-id="${s.id}">載入</button><button class="btn warn" data-act="delSave" data-id="${s.id}" aria-label="刪除存檔">刪</button></div>`).join("")+`</div>` : `<p class="empty">還沒有存檔。</p>`;
+  h+=`<h3>開新戰場</h3><div class="row"><button class="btn warn" data-act="wipe">清空棋子、範圍與回合</button></div>`;
+  return h;
+}
+
+const body=$("#sheetBody");
+body.addEventListener("focusout", ()=>{ setTimeout(()=>{ if (panelDirty) renderPanel(); }, 0); });
+body.addEventListener("change", e => {
+  const id=e.target.id, t=S.sel&&S.tokens[S.sel];
+  if (t){
+    if (id==="tName") patchToken(S.sel,{name:e.target.value.trim().slice(0,24)||"?"});
+    if (id==="tSize"){ const f=FOOT[e.target.value]; const [x,y]=snapToken({...t,size:e.target.value},t.x+f/2,t.y+f/2); patchToken(S.sel,{size:e.target.value,x,y}); }
+    if (id==="tColor") patchToken(S.sel,{color:e.target.value});
+    if (id==="tVis") patchToken(S.sel,{vision:clamp(+e.target.value||0,0,400)});
+    if (id==="tClaim") patchToken(S.sel,{claimable:e.target.checked});
+    if (id==="tHidden") patchToken(S.sel,{hidden:e.target.checked});
+    if (id==="tOwner" && S.isGM){ const v=e.target.value||null; patchToken(S.sel,{ownerId:v, ownerName: v?(S.peers[v]?.name||nameOf(v)):null, pinHash:null}); renderPanel(); }
+  }
+  if (id==="mFog") patchCfg({fog:e.target.checked});
+  if (id==="mShare") patchCfg({shareVision:e.target.checked});
+  if (id==="mBg") uploadBg(e.target.files[0]);
+  if (e.target.dataset.ini!==undefined){
+    const i=+e.target.dataset.ini, c=S.combat, order=[...(c.order||[])], en=order[i];
+    if (en && canEditEntry(en)){ const v=e.target.value===""?null:+e.target.value; const n={...en}; if (Number.isFinite(v)) n.init=v; else delete n.init; order[i]=n; putCombat({...c, order}); }
+  }
+});
+body.addEventListener("click", async e => {
+  const b=e.target.closest("button[data-act]"); if(!b) return;
+  const a=b.dataset.act, id=b.dataset.id;
+  if (a==="delTpl"){ delTemplate(S.selTpl); S.selTpl=null; renderPanel(); }
+  if (a==="delTok"){ const tid=S.sel; if(!canDeleteToken(S.tokens[tid])) return; deleteTokenFull(tid); renderPanel(); }
+  if (a==="unbindTpl") unbindTpl(S.selTpl);
+  if (a==="addPCs"){ addDefaultPCs(); renderPanel(); }
+  if (a==="dup"){ const t=S.tokens[S.sel]; const nid=uid(); const n={...t,name:t.name+"'",at:Date.now()}; delete n.ownerId; delete n.ownerName; delete n.pinHash; [n.x,n.y]=snapToken(n,t.x+(FOOT[t.size]||1)*1.5,t.y+(FOOT[t.size]||1)/2); putToken(nid,n); S.sel=nid; renderPanel(); }
+  if (a==="releaseId") releaseToken(id);
+  if (a==="claim") claim(id);
+  if (a==="reclaim") reclaim(id);
+  if (a==="rename") askName(true).then(()=>renderPanel());
+  if (a==="focus") focusToken(id);
+  if (a==="addInit"){ const t=S.tokens[id]; if (t && !(S.combat.order||[]).some(x=>x.tid===id)) { combatAdd([{id:uid(),tid:id,by:S.me}]); toast(`「${t.name}」已加入回合順序`); } }
+  if (a==="initAddAll"){ const inO=new Set((S.combat.order||[]).map(x=>x.tid)); combatAdd(Object.keys(S.tokens).filter(k=>!inO.has(k)).map(k=>({id:uid(),tid:k,by:S.me}))); }
+  if (a==="initCustom"){ const v=($("#iCustom").value||"").trim().slice(0,24); if(!v) return; combatAdd([{id:uid(),name:v,by:S.me}]); }
+  if (a==="initNext"){ const cur=currentEntry(); if (S.isGM || (cur && isMineEntry(cur))) combatStep(1); }
+  if (a==="initPrev") combatStep(-1);
+  if (a==="initSort"){ const c=S.combat, cur=currentEntry(); const order=c.order.map((x,i)=>({x,i})).sort((p,q)=>((q.x.init??-1e9)-(p.x.init??-1e9))||(p.i-q.i)).map(o=>o.x); putCombat({...c, order, turn:Math.max(0,order.indexOf(cur))}); }
+  if (a==="initUp"||a==="initDown"){ const i=+b.dataset.i, j=a==="initUp"?i-1:i+1, c=S.combat, order=[...c.order]; if(j<0||j>=order.length) return; const cur=order[c.turn]; [order[i],order[j]]=[order[j],order[i]]; putCombat({...c, order, turn:order.indexOf(cur)}); }
+  if (a==="initRemove"){ const i=+b.dataset.i, c=S.combat, en=c.order[i]; if(!en||!canEditEntry(en)) return; const cur=c.order[c.turn]; const order=c.order.filter((_,k)=>k!==i); const turn= cur===en ? Math.min(c.turn, order.length-1) : order.indexOf(cur); putCombat({...c, order, turn:Math.max(0,turn)}); }
+  if (a==="initReset"){ if(await confirmBox("結束戰鬥","清空回合順序並回到第 1 輪？")) putCombat({round:1,turn:0,order:[]}); }
+  if (a==="applyGrid") applyGrid();
+  if (a==="clearWalls") patchCfg({walls:""});
+  if (a==="clearReveal") patchCfg({reveal:""});
+  if (a==="rmBg"){ patchCfg({bgId:null}); setBgData(null); renderPanel(); }
+  if (a==="fitBg" && bgImg){ const rows=clamp(Math.round(S.cfg.cols*bgImg.naturalHeight/bgImg.naturalWidth),4,MAX_GRID); resizeGrid(S.cfg.cols,rows); fitView(); renderPanel(); toast(`高度設為 ${rows} 格`); }
+  if (a==="saveTitle"){ const v=$("#mTitle").value.trim().slice(0,40)||"戰術地圖"; patchCfg({title:v}); if(S.online) w(ref(`${R}/meta/title`).set(v)); applyTitle(); toast("已改名"); }
+  if (a==="changePw") changeGmPw();
+  if (a==="leave") goHome();
+  if (a==="save") saveSnapshot();
+  if (a==="load") loadSnapshot(id);
+  if (a==="delSave"){ if(!await confirmBox("刪除存檔","刪除後無法復原。","刪除")) return; w(ref(`${R}/saves/${id}`).remove()); S.saves=S.saves.filter(s=>s.id!==id); renderPanel(); }
+  if (a==="wipe"){ if(!await confirmBox("開新戰場","清空所有棋子、範圍與回合？地圖、牆壁與存檔會保留。","清空")) return;
+    S.tokens={}; S.templates={}; S.sel=null; w(ref(`${R}/tokens`).remove()); w(ref(`${R}/templates`).remove()); putCombat({round:1,turn:0,order:[]}); renderPanel(); draw(); }
+});
+function focusToken(id){ const t=S.tokens[id]; if(!t) return; const r=cv.getBoundingClientRect(), f=FOOT[t.size]||1; S.view.x=r.width/2-(t.x+f/2)*S.view.s; S.view.y=r.height/2-(t.y+f/2)*S.view.s; S.sel=id; S.tool="select"; renderTools(); renderPanel(); draw(); }
+function resizeGrid(cols,rows){
+  const o=S.cfg, rebit=str=>{ const src=ensureBits(str); let out=""; for(let y=0;y<rows;y++) for(let x=0;x<cols;x++) out+=(x<o.cols&&y<o.rows)?src[y*o.cols+x]:"0"; return out; };
+  const walls=rebit(o.walls), reveal=rebit(o.reveal);
+  patchCfg({cols,rows,walls,reveal});
+  for (const [id,t] of Object.entries(S.tokens)){ const f=FOOT[t.size]||1; if (t.x+f>cols||t.y+f>rows) patchToken(id,{x:clamp(t.x,0,cols-f),y:clamp(t.y,0,rows-f)}); }
+}
+function applyGrid(){
+  const cols=clamp(Math.round(+$("#mCols").value||24),4,MAX_GRID), rows=clamp(Math.round(+$("#mRows").value||16),4,MAX_GRID), meters=clamp(+$("#mMeters").value||2,0.5,100);
+  if (meters!==S.cfg.meters) patchCfg({meters});
+  if (cols!==S.cfg.cols||rows!==S.cfg.rows) resizeGrid(cols,rows);
+  fitView(); renderPanel(); toast(`格子 ${cols}×${rows}，每格 ${meters} 米`);
+}
+async function uploadBg(file){
+  if (!file) return;
+  toast("處理圖片中…");
+  try{
+    const url=URL.createObjectURL(file); const im=await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
+    let max=2048, data="";
+    for (let q=0.82; ; ){ const k=Math.min(1,max/Math.max(im.naturalWidth,im.naturalHeight)); const c=document.createElement("canvas"); c.width=Math.round(im.naturalWidth*k); c.height=Math.round(im.naturalHeight*k); c.getContext("2d").drawImage(im,0,0,c.width,c.height); data=c.toDataURL("image/jpeg",q); if (data.length<1.8e6 || max<800) break; max=Math.round(max*0.8); q=Math.max(0.6,q-0.06); }
+    URL.revokeObjectURL(url);
+    const id=uid(); await ref(`${R}/images/${id}`).set({data, at:Date.now()});
+    patchCfg({bgId:id}); renderPanel(); toast("底圖已更新");
+  }catch(err){ onWriteError(err); }
+}
+
+/* ============ 認領 ============ */
+async function askName(force){
+  if (S.myName && !force) return S.myName;
+  const r=await dialog({title:"你的名字", text:"讓 GM 和其他玩家知道這是誰。", fields:[{id:"n",label:"名字",value:S.myName,max:16,placeholder:"例如：小明"}], ok:"確定", cancel: force?"取消":null});
+  if (!r) return S.myName;
+  S.myName=(r.n||"").slice(0,16) || ("玩家"+S.me.slice(-3)); lsSet("bm-name",S.myName);
+  if (S.online) ref(`${R}/presence/${S.me}/name`).set(S.myName).catch(()=>{});
+  for (const [id,t] of Object.entries(S.tokens)) if (t.ownerId===S.me && t.ownerName!==S.myName) patchToken(id,{ownerName:S.myName});
+  return S.myName;
+}
+async function claim(id){
+  const t=S.tokens[id]; if(!t||t.ownerId){ toast("這個棋子已經有人了"); return; }
+  if (!S.isGM) await askName(false);
+  const r=await dialog({title:`認領「${t.name}」`, text:"設定 4 位數取回碼：之後換手機或換瀏覽器時，用它把棋子拿回來。可以留空，但換裝置就得請 GM 轉交。", fields:[{id:"pin",label:"取回碼（可留空）",type:"text",inputmode:"numeric",max:8,placeholder:"例如 2580"}], ok:"認領"});
+  if (!r) return;
+  const res=await ref(`${R}/tokens/${id}/ownerId`).transaction(cur=>cur?undefined:S.me).catch(err=>{ onWriteError(err); return null; });
+  if (!res || !res.committed){ if(res) toast("剛剛被別人認領了"); return; }
+  const pinHash = r.pin ? await hashStr(`${S.room}:pin:${r.pin}`) : null;
+  patchToken(id,{ownerId:S.me, ownerName:S.myName||"玩家", pinHash});
+  focusToken(id);
+  toast(`你現在控制「${t.name}」`, {label:"點錯了", fn:()=>releaseToken(id, true)});
+}
+function releaseToken(id, quiet){
+  const t=S.tokens[id]; if (!t || (t.ownerId!==S.me && !S.isGM)) return;
+  patchToken(id,{ownerId:null, ownerName:null, pinHash:null}); if (S.sel===id && !S.isGM) S.sel=null;
+  renderPanel(); toast(quiet?"已取消認領":`已放棄「${t.name}」`);
+}
+async function reclaim(id){
+  const t=S.tokens[id]; if (!t) return;
+  await askName(false);
+  const r=await dialog({title:`取回「${t.name}」`, text:"輸入當初認領時設定的取回碼。", fields:[{id:"pin",label:"取回碼",inputmode:"numeric",max:8}], ok:"取回"});
+  if (!r || !r.pin) return;
+  const h=await hashStr(`${S.room}:pin:${r.pin}`);
+  if (h!==t.pinHash){ toast("取回碼不對，可以請 GM 直接轉交給你"); return; }
+  patchToken(id,{ownerId:S.me, ownerName:S.myName||"玩家"}); focusToken(id); toast(`已取回「${t.name}」`);
+}
+
+/* ============ 回合 ============ */
+function combatAdd(entries){ const c=S.combat; putCombat({...c, order:[...(c.order||[]), ...entries]}); }
+function combatStep(dir){
+  const c=S.combat, n=(c.order||[]).length; if(!n) return;
+  let turn=c.turn+dir, round=c.round||1;
+  if (turn>=n){ turn=0; round++; } if (turn<0){ turn=n-1; round=Math.max(1,round-1); }
+  putCombat({...c, turn, round});
+}
+function updateHud(){
+  const c=S.combat, cur=currentEntry();
+  if (!(c.order||[]).length || !cur){ $("#hud").innerHTML=""; return; }
+  const nm = entryHidden(cur)&&!S.isGM ? "？？？" : entryName(cur);
+  $("#hud").innerHTML=`<span class="tag"><span class="num">第 ${c.round||1} 輪</span>・輪到 ${esc(nm)}${isMineEntry(cur)?"（你）":""}</span>`;
+}
+
+/* ============ 存檔 ============ */
+async function saveSnapshot(){
+  const name=($("#sName").value||"").trim().slice(0,40)||`存檔 ${new Date().toLocaleString("zh-TW")}`;
+  const id=uid(), snap={name,at:Date.now(),cfg:S.cfg,combat:S.combat,tokens:S.tokens,templates:S.templates};
+  await w(ref(`${R}/saves/${id}`).set(JSON.parse(JSON.stringify(snap))));
+  if (!S.online){ S.saves.unshift({id,...snap}); }
+  renderPanel(); toast(`已另存「${name}」`);
+}
+async function loadSnapshot(id){
+  const s=S.saves.find(x=>x.id===id); if(!s) return;
+  if (!await confirmBox(`載入「${s.name}」`, "目前的棋子、範圍與回合會被取代。需要的話先另存一份。", "載入")) return;
+  S.tokens=s.tokens||{}; S.templates=s.templates||{}; S.cfg={...DEFAULT_CFG,...s.cfg};
+  w(ref(`${R}/tokens`).set(s.tokens||null)); w(ref(`${R}/templates`).set(s.templates||null)); w(ref(`${R}/cfg`).set(S.cfg));
+  putCombat(s.combat ? {...s.combat, order:normOrder(s.combat.order)} : {round:1,turn:0,order:[]});
+  visCache.key=null; applyTitle(); fitView(); renderPanel(); toast(`已載入「${s.name}」`);
+}
+
+/* ============ 房間 / 身分 ============ */
+function applyTitle(){ const t=S.cfg.title||"戰術地圖"; $("#title").textContent=t; document.title=t; }
+function setRole(){
+  const r=$("#role");
+  if (!S.online){ r.className="role solo"; r.textContent="單機"; }
+  else if (S.isGM){ r.className="role gm"; r.textContent="GM"; }
+  else { r.className="role pl"; r.textContent="玩家"; }
+  $("#btnPreview").hidden=!(S.isGM && S.cfg.fog);
+  $("#btnRole").hidden=!S.online; $("#btnInvite").hidden=!S.online;
+}
+function renderAll(){ renderTools(); renderPanel(); updateHud(); draw(); }
+function roomUrl(code){ const u=new URL(location.href); u.search=""; u.hash=""; if (code) u.searchParams.set("room",code); if (!FIREBASE_DB_URL && DB_URL) u.searchParams.set("db",DB_URL); return u.toString(); }
+function goHome(){ location.href=roomUrl(""); }
+function addRecent(code,title){ let r=[]; try{ r=JSON.parse(ls("bm-recent")||"[]"); }catch{} r=[{code,title,at:Date.now()},...r.filter(x=>x.code!==code)].slice(0,8); lsSet("bm-recent",JSON.stringify(r)); }
+$("#btnInvite").onclick=async()=>{
+  const url=roomUrl(S.room);
+  if (navigator.share){ try{ await navigator.share({title:S.cfg.title, text:`加入「${S.cfg.title}」，房間代碼 ${S.room}`, url}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
+  try{ await navigator.clipboard.writeText(url); toast("邀請連結已複製"); }
+  catch{ dialog({title:"邀請連結", text:"複製這個網址傳給玩家：", fields:[{id:"u",label:"網址",value:url,max:2000}], ok:"好", cancel:null}); }
+};
+$("#btnRole").onclick=()=>openGate();
+
+function gateMineText(){ const mine=Object.values(S.tokens).filter(t=>t.ownerId===S.me); return mine.length?`歡迎回來！你控制：${mine.map(t=>t.name).join("、")}`:"進入後到「認領」挑一個角色。換了手機的話，可以用取回碼拿回棋子。"; }
+function openGate(err){
+  const g=$("#gate");
+  const remembered = ls("bm-gm-"+S.room);
+  const gmOk = remembered && S.meta && remembered===S.meta.gmHash;
+  g.innerHTML=`<div class="gate-card"><h2>${esc(S.cfg.title||"戰術地圖")}</h2><p class="hint">房間代碼 <span class="code">${esc(S.room)}</span></p>
+  <label class="fld"><span>你的名字</span><input type="text" id="gName" value="${esc(S.myName)}" maxlength="16" placeholder="例如：小明"></label>
+  <button class="choice pl" data-role="player"><b>我是玩家</b><span id="gMine">${esc(gateMineText())}</span></button>
+  <button class="choice gm" data-role="gm"><b>我是 GM</b><span>${gmOk?"這台裝置已記住 GM 身分。":"需要輸入開房時設定的 GM 密碼。"}</span></button>
+  <div id="gmPwBox" hidden><label class="fld"><span>GM 密碼</span><input type="password" id="gPw" autocomplete="current-password"></label><div class="row" style="justify-content:flex-end"><button class="btn gm" data-role="gmpw">以 GM 進入</button></div></div>
+  <p class="err" id="gErr">${esc(err||"")}</p>
+  <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="btn" data-role="home">回到房間列表</button></div></div>`;
+  g.classList.add("open");
+  g.onclick=async e=>{
+    const b=e.target.closest("button[data-role]"); if(!b) return;
+    const nm=$("#gName").value.trim().slice(0,16);
+    if (b.dataset.role==="home") return goHome();
+    if (b.dataset.role==="player"){
+      if (!nm){ $("#gErr").textContent="請先輸入名字"; $("#gName").focus(); return; }
+      setName(nm); enterAs(false); return;
+    }
+    if (b.dataset.role==="gm"){
+      if (gmOk){ setName(nm||S.myName||"GM"); enterAs(true); return; }
+      $("#gmPwBox").hidden=false; $("#gPw").focus(); return;
+    }
+    if (b.dataset.role==="gmpw"){
+      const h=await hashStr(`${S.room}:gm:${$("#gPw").value}`);
+      if (!S.meta || h!==S.meta.gmHash){ $("#gErr").textContent="GM 密碼不對"; return; }
+      lsSet("bm-gm-"+S.room, h); setName(nm||S.myName||"GM"); enterAs(true);
+    }
+  };
+  g.onkeydown=e=>{ if (e.key==="Enter" && e.target.id==="gPw") g.querySelector('[data-role="gmpw"]').click(); };
+}
+function setName(n){ if(!n) return; S.myName=n; lsSet("bm-name",n);
+  for (const [id,t] of Object.entries(S.tokens)) if (t.ownerId===S.me && t.ownerName!==n) patchToken(id,{ownerName:n}); }
+function enterAs(gm){
+  S.isGM=gm; S.preview=false; $("#btnPreview").setAttribute("aria-pressed","false");
+  $("#gate").classList.remove("open");
+  if (!gm && !["select","ruler","circle","cone","rect","line"].includes(S.tool)) S.tool="select";
+  const pr=ref(`${R}/presence/${S.me}`);
+  pr.set({name:S.myName||"?", role:gm?"gm":"player", at:Date.now()}).catch(()=>{});
+  pr.onDisconnect().remove();
+  if (gm) startSaves();
+  visCache.key=null; selbarKey="x"; setRole(); renderAll();
+  if (!gm){ const mine=Object.entries(S.tokens).find(([,t])=>t.ownerId===S.me&&!isCreator(t)) || Object.entries(S.tokens).find(([,t])=>t.ownerId===S.me);
+    if (mine) focusToken(mine[0]); else openSheet("players"); }
+}
+let savesOn=false;
+function startSaves(){ if (savesOn) return; savesOn=true; listen(`${R}/saves`, v=>{ S.saves=Object.entries(v||{}).map(([id,s])=>({id,...s})).sort((a,b)=>b.at-a.at); if(S.tab==="saves") renderPanel(); }); }
+async function changeGmPw(){
+  const r=await dialog({title:"更改 GM 密碼", fields:[{id:"p",label:"新密碼（至少 4 個字）",type:"password"}], ok:"更改"});
+  if (!r) return; if ((r.p||"").length<4){ toast("密碼至少 4 個字"); return; }
+  const h=await hashStr(`${S.room}:gm:${r.p}`); await w(ref(`${R}/meta/gmHash`).set(h)); S.meta={...S.meta,gmHash:h}; lsSet("bm-gm-"+S.room,h); toast("GM 密碼已更改");
+}
+
+/* ============ 首頁 ============ */
+function renderHome(msg){
+  const h=$("#home");
+  let recent=[]; try{ recent=JSON.parse(ls("bm-recent")||"[]"); }catch{}
+  const noFb = typeof firebase==="undefined";
+  let html=`<div class="gate-card"><h2>戰術地圖</h2>`;
+  if (!fb){
+    html+=`<p class="hint">${noFb?"載入線上元件失敗，請檢查網路後重新整理。":"還沒連上線上資料庫。GM 第一次使用時，貼上 Firebase Realtime Database 網址（只要一次，之後會自動帶在邀請連結裡）。"}</p>
+    ${noFb?"":`<label class="fld"><span>資料庫網址</span><input type="url" id="hDb" placeholder="https://xxxx-default-rtdb.firebasedatabase.app" value="${esc(DB_URL)}"></label><div class="row" style="justify-content:flex-end"><button class="btn primary" data-h="setdb">連線</button></div>`}
+    <h3>先試試看</h3><p class="hint">單機模式：資料只存在這台裝置，適合自己備戰或面對面用一支平板。</p>
+    <div class="row"><button class="btn" data-h="solo">開始單機模式</button></div>`;
+  } else {
+    html+=`<h3>開新房間（GM）</h3>
+    <label class="fld"><span>房間名稱</span><input type="text" id="hTitle" maxlength="40" placeholder="例如：輪迴之境 第三章"></label>
+    <label class="fld"><span>GM 密碼（至少 4 個字，進 GM 身分時要用）</span><input type="password" id="hPw" autocomplete="new-password"></label>
+    <div class="row" style="justify-content:flex-end"><button class="btn gm" data-h="create">建立房間</button></div>
+    <h3>加入房間</h3>
+    <div class="row"><input type="text" id="hCode" maxlength="6" placeholder="房間代碼" style="flex:1;text-transform:uppercase" class="code" autocapitalize="characters"><button class="btn primary" data-h="join">加入</button></div>`;
+    if (recent.length) html+=`<h3>最近的房間</h3><div class="list">`+recent.map(r=>`<div class="item"><span class="nm">${esc(r.title||r.code)}</span><span class="meta code">${esc(r.code)}</span><button class="btn" data-h="go" data-code="${esc(r.code)}">進入</button></div>`).join("")+`</div>`;
+    html+=`<div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-h="solo">單機模式</button></div>`;
+  }
+  html+=`<p class="err">${esc(msg||"")}</p></div>`;
+  h.innerHTML=html; h.classList.add("open");
+  h.onclick=async e=>{
+    const b=e.target.closest("button[data-h]"); if(!b) return; const a=b.dataset.h;
+    if (a==="setdb"){ const v=$("#hDb").value.trim().replace(/\/+$/,""); if(!/^https:\/\/.+/.test(v)){ renderHome("網址要以 https:// 開頭"); return; } lsSet("bm-dburl",v); DB_URL=v; location.href=roomUrl((qs.get("room")||"").toUpperCase()); }
+    if (a==="solo") startLocal();
+    if (a==="join"||a==="go"){ const c=(b.dataset.code||$("#hCode").value).trim().toUpperCase(); if(!/^[A-Z0-9]{4,8}$/.test(c)){ renderHome("房間代碼是 6 個英數字"); return; } location.href=roomUrl(c); }
+    if (a==="create"){
+      const title=$("#hTitle").value.trim().slice(0,40)||"戰術地圖", pw=$("#hPw").value;
+      if (pw.length<4){ renderHome("GM 密碼至少 4 個字"); return; }
+      b.disabled=true;
+      try{
+        let code=roomCode(); for (let i=0;i<4;i++){ const ex=await fb.ref(`rooms/${code}/meta`).once("value"); if(!ex.exists()) break; code=roomCode(); }
+        const gmHash=await hashStr(`${code}:gm:${pw}`);
+        await fb.ref(`rooms/${code}`).set({meta:{title,gmHash,created:Date.now()}, cfg:{...DEFAULT_CFG,title}, tokens:defaultPCs(1)});
+        lsSet("bm-gm-"+code,gmHash); addRecent(code,title);
+        location.href=roomUrl(code);
+      }catch(err){ b.disabled=false; renderHome(/permission/i.test(String(err&&(err.code||err.message)))?"資料庫拒絕寫入：請照說明設定 Firebase 規則":"建立失敗，請檢查資料庫網址與網路"); }
+    }
+  };
+}
+
+/* ============ 啟動 ============ */
+function subscribeRoom(){
+  let pending=4; const done=()=>{ if(--pending<=0){ clearTimeout(timer); status(null); } };
+  const timer=setTimeout(()=>status("連不上資料庫，畫面可能不是最新"),10000);
+  status("載入中…");
+  let f1=true, f2=true, f3=true, f4=true, bgUnsub=null, bgFor=null;
+  listen(`${R}/cfg`, v=>{
+    const c=v||{}; S.cfg={...DEFAULT_CFG,...c}; S.cfg.walls=c.walls||""; S.cfg.reveal=c.reveal||"";
+    if (S.cfg.bgId!==bgFor){ bgFor=S.cfg.bgId; if(bgUnsub) bgUnsub(); bgUnsub=null; if (bgFor) bgUnsub=listen(`${R}/images/${bgFor}`, im=>setBgData(im&&im.data)); else setBgData(null); }
+    visCache.key=null; applyTitle(); setRole();
+    if (f1){ f1=false; fitView(); done(); }
+    renderTools(); renderPanel(); draw();
+  });
+  listen(`${R}/tokens`, v=>{
+    S.tokens=v||{}; if (S.sel && !S.tokens[S.sel]) S.sel=null;
+    S.tokensReady=true; if (S.isGM) pruneCombat();
+    const gmEl=$("#gMine"); if (gmEl) gmEl.textContent=gateMineText();
+    visCache.key=null; renderPanel(); updateHud(); draw();
+    if (f2){ f2=false; done(); }
+  });
+  listen(`${R}/templates`, v=>{ S.templates=v||{}; if (S.selTpl && !S.templates[S.selTpl]) S.selTpl=null; draw(); if (f3){ f3=false; done(); } });
+  listen(`${R}/combat`, v=>{
+    const order=normOrder(v&&v.order);
+    S.combat={round:+(v&&v.round)||1, turn:clamp(+(v&&v.turn)||0,0,Math.max(0,order.length-1)), order};
+    if (S.tokensReady && S.isGM) pruneCombat();
+    updateHud(); renderPanel(); draw(); if (f4){ f4=false; done(); }
+  });
+  if (S.online){
+    let peerKey="";
+    listen(`${R}/presence`, v=>{ S.peers=v||{}; draw(); const k=Object.entries(S.peers).map(([id,p])=>id+":"+(p&&p.name)).sort().join("|"); if (k!==peerKey){ peerKey=k; renderPanel(); } });
+    fb.ref(".info/connected").on("value", s=>{ if (s.val()===false && !f1) status("連線中斷，重新連線中…"); else if (s.val()) { status(null); if (!$("#gate").classList.contains("open")){ const pr=ref(`${R}/presence/${S.me}`); pr.update({name:S.myName||"?",role:S.isGM?"gm":"player",at:Date.now()}).catch(()=>{}); pr.onDisconnect().remove(); } } });
+  }
+}
+function status(msg){ const s=$("#status"); if(!msg){ s.hidden=true; return; } s.hidden=false; s.textContent=msg; }
+function startLocal(){
+  $("#home").classList.remove("open");
+  fb=null; S.online=false; S.isGM=true; S.room="LOCAL"; R="rooms/LOCAL";
+  subscribeRoom(); startSaves(); setRole(); renderAll();
+  setTimeout(()=>{ if (!Object.keys(S.tokens).length){
+    for (const [id,t] of Object.entries(defaultPCs(1))) putToken(id,t);
+    putToken("demo2",{name:"巨魔",size:"large",color:PALETTE[6],vision:16,claimable:false,hidden:false,x:12,y:7,at:2});
+  } }, 300);
+}
+async function boot(){
+  new ResizeObserver(resize).observe($("#stage"));
+  renderTools(); setRole(); applyTitle();
+  requestAnimationFrame(()=>{ resize(); fitView(); });
+  fb = initFirebase(DB_URL);
+  if (fb && !FIREBASE_DB_URL) lsSet("bm-dburl", DB_URL);
+  const code=(qs.get("room")||"").toUpperCase();
+  if (!fb || !code){ renderHome(); return; }
+  S.room=code; R=`rooms/${code}`; S.online=true;
+  status("連線中…");
+  let meta=null;
+  try{ meta=(await Promise.race([fb.ref(`${R}/meta`).once("value"), new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),12000))])).val(); }
+  catch(e){ status(null); renderHome(/permission/i.test(String(e&&(e.code||e.message)))?"資料庫拒絕讀取：請照說明設定 Firebase 規則":"連不上資料庫，請檢查網路或資料庫網址"); return; }
+  status(null);
+  if (!meta){ renderHome(`找不到房間 ${code}`); return; }
+  S.meta=meta; S.cfg.title=meta.title||S.cfg.title; applyTitle(); addRecent(code, meta.title);
+  listen(`${R}/meta`, v=>{ if (v) S.meta=v; });
+  subscribeRoom();
+  openGate();
+}
+boot();
+})();
+</script>
+</body>
+</html>
