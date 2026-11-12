@@ -116,6 +116,16 @@ input[type=color]{width:40px;height:34px;padding:0;border:1px solid var(--line);
 #home{background:var(--table)}
 #modal{z-index:35}
 .crop-card{max-width:560px}
+.pat-card{max-width:480px}
+.pat-grid{display:grid;gap:1px;background:#3a4644;border:1px solid #3a4644;border-radius:6px;overflow:hidden;touch-action:none;user-select:none;margin:8px auto;width:100%;max-width:min(100%,58vh)}
+.pat-grid div{aspect-ratio:1;background:#25302e;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;cursor:pointer}
+.pat-grid div.on{background:#d9483b}
+.pat-grid div.me{background:#3f8f96;cursor:default}
+.pat-grid div.ax{background:#2c3836}
+.pat-grid div.ax.on{background:#d9483b}
+.pat-mini{display:inline-grid;gap:0;flex:0 0 auto;border:1px solid var(--line);background:#25302e}
+.pat-mini i{display:block;width:4px;height:4px}
+.pat-mini i.on{background:#d9483b}.pat-mini i.me{background:#3f8f96}
 .crop-wrap{display:flex;justify-content:center;background:#111;border-radius:8px;padding:6px;margin:8px 0;touch-action:none}
 #cropCv{display:block;touch-action:none;cursor:move}
 .tokthumb{width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--line);flex:0 0 auto}
@@ -287,7 +297,7 @@ const S = {
   myName: ls("bm-name") || "",
   isGM: false, online: false, room: "", meta: null,
   view: {x:40, y:40, s:44},
-  tool: "select", coneAngle: 90,
+  tool: "select", coneAngle: 90, patterns: {}, patSel: ls("bm-pat")||"",
   sel: null, selTpl: null, preview: false,
   drag: null, draft: null, ruler: null, paint: null, tplDrag: null,
   peers: {}, saves: [], tab: "token", tokensReady:false,
@@ -378,6 +388,16 @@ function normT(t){
   }
   return t;
 }
+/* 自訂範圍：以 45° 為單位在方形環上旋轉（直線、對角線都能精準對應） */
+function ringRot(dx,dy,k){
+  const r=Math.max(Math.abs(dx),Math.abs(dy)); k=((k%8)+8)%8; if (!r || !k) return [dx,dy];
+  let i; if (dy===-r && dx<r) i=dx+r; else if (dx===r && dy<r) i=3*r+dy; else if (dy===r && dx>-r) i=5*r-dx; else i=7*r-dy;
+  const n=8*r; i=(i+k*r)%n;
+  if (i<2*r) return [i-r,-r]; if (i<4*r) return [r,i-3*r]; if (i<6*r) return [5*r-i,r]; return [-r,7*r-i];
+}
+const patList = str => (str||"").split(";").filter(Boolean).map(c=>c.split(",").map(Number)).filter(a=>a.length===2&&a.every(Number.isFinite));
+const patStep = ang => Math.round(((ang||0)+Math.PI/2)/(Math.PI/4));
+const patReach = str => Math.max(1, ...patList(str).map(([x,y])=>Math.max(Math.abs(x),Math.abs(y))));
 function shiftT(t,dx,dy){ return t.shape==="rect" ? {...t,cx:t.cx+dx,cy:t.cy+dy} : {...t,ox:t.ox+dx,oy:t.oy+dy}; }
 function tokPos(id){
   const t=S.tokens[id]; if(!t) return null;
@@ -391,6 +411,7 @@ function effT(id,t){ // 實際顯示的位置（含拖曳中與綁定偏移）
   const [bx,by]=bindShift(g); return (bx||by) ? shiftT(g,bx,by) : g;
 }
 function tplHandle(g){
+  if (g.shape==="pat"){ const d=patReach(g.cells)+0.9; return [g.ox+Math.cos(g.ang)*d, g.oy+Math.sin(g.ang)*d]; }
   const r=(g.len||0)/S.cfg.meters;
   if (g.shape==="circle") return [g.ox+r, g.oy];
   if (g.shape==="rect"){ const a=g.ang||0, d=g.w/2+0.7; return [g.cx+Math.cos(a)*d, g.cy+Math.sin(a)*d]; }
@@ -406,6 +427,9 @@ function snapRectCenter(g){
 function tplCells(t){
   t=normT(t);
   const {cols,rows}=S.cfg, out=[];
+  if (t.shape==="pat"){ const bx=Math.floor(t.ox), by=Math.floor(t.oy), k=patStep(t.ang);
+    for (const [dx,dy] of patList(t.cells)){ const [rx,ry]=ringRot(dx,dy,k), x=bx+rx, y=by+ry; if (x>=0&&y>=0&&x<cols&&y<rows) out.push([x,y]); }
+    return out; }
   if (t.shape==="rect"){
     const a=t.ang||0, ux=Math.cos(a), uy=Math.sin(a), rr=Math.hypot(t.w,t.h)/2+1;
     for (let y=Math.max(0,Math.floor(t.cy-rr)); y<=Math.min(rows-1,Math.ceil(t.cy+rr)); y++)
@@ -436,6 +460,7 @@ function tplLabel(t){
   if (t.shape==="rect") return `${t.w*m}×${t.h*m} 米`;
   if (t.shape==="circle") return `半徑 ${fmtM(t.len)}`;
   if (t.shape==="cone") return `錐形 ${fmtM(t.len)} · ${t.spread}°`;
+  if (t.shape==="pat") return t.name || "自訂範圍";
   return `直線 ${fmtM(t.len)}`;
 }
 
@@ -492,6 +517,8 @@ function paint(){
     if (t.shape==="rect"){ const a=t.ang||0, ux=Math.cos(a), uy=Math.sin(a), hw=t.w/2*s, hh=t.h/2*s, cx=t.cx*s, cy=t.cy*s;
       const pts=[[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(([px,py])=>[cx+px*ux-py*uy, cy+px*uy+py*ux]);
       ctx.moveTo(...pts[0]); for (let i=1;i<4;i++) ctx.lineTo(...pts[i]); ctx.closePath(); }
+    else if (t.shape==="pat"){ for (const [x,y] of tplCells(t)) ctx.rect(x*s+1.5,y*s+1.5,s-3,s-3);
+      if (t.id==="__draft"){ const [hx,hy]=tplHandle(t); ctx.moveTo(t.ox*s,t.oy*s); ctx.lineTo(hx*s,hy*s); } }
     else { const r=t.len/S.cfg.meters*s;
       if (t.shape==="circle") ctx.arc(t.ox*s,t.oy*s,r,0,Math.PI*2);
       else if (t.shape==="cone"){ const h=t.spread*Math.PI/360; ctx.moveTo(t.ox*s,t.oy*s); ctx.arc(t.ox*s,t.oy*s,r,t.ang-h,t.ang+h); ctx.closePath(); }
@@ -649,6 +676,13 @@ cv.addEventListener("pointerdown", e => {
     gesture=panG(e); return;
   }
   if (tool==="ruler"){ const x=Math.floor(wx), y=Math.floor(wy); S.ruler={x0:x,y0:y,x1:x,y1:y}; gesture={type:"ruler"}; draw(); return; }
+  if (tool==="pat"){
+    const pt=S.patterns[S.patSel]; if (!pt){ openPatPanel(); gesture=panG(e); return; }
+    const tk=hitToken(wx,wy), tt=tk&&S.tokens[tk], f=tt?(FOOT[tt.size]||1):1;
+    const ox = tt ? Math.floor(tt.x+f/2)+0.5 : Math.floor(wx)+0.5, oy = tt ? Math.floor(tt.y+f/2)+0.5 : Math.floor(wy)+0.5;
+    S.draft={shape:"pat", ox, oy, ang:S.patAng??-Math.PI/2, cells:pt.cells, name:pt.name, color:myColor()};
+    gesture={type:"tpl",sx:wx,sy:wy,moved:false}; draw(); return;
+  }
   if (["circle","cone","line","rect"].includes(tool)){
     const color=myColor();
     if (tool==="rect"){ const x=Math.floor(wx), y=Math.floor(wy); S.draft={shape:"rect",x0:x,y0:y,x1:x,y1:y,color}; }
@@ -686,7 +720,7 @@ cv.addEventListener("pointermove", e => {
   if (gesture.type==="tplmove"){
     if (!gesture.moved && Math.hypot(e.offsetX-gesture.px,e.offsetY-gesture.py)<6) return;
     gesture.moved=true;
-    const o=gesture.orig, step=(o.shape==="rect"||o.shape==="circle")?1:0.5;
+    const o=gesture.orig, step=(o.shape==="rect"||o.shape==="circle"||o.shape==="pat")?1:0.5;
     const dx=Math.round((wx-gesture.sx)/step)*step, dy=Math.round((wy-gesture.sy)/step)*step;
     S.tplDrag={id:gesture.id, geom:shiftT(o,dx,dy)};
     const tid=hitToken(wx,wy);
@@ -696,13 +730,15 @@ cv.addEventListener("pointermove", e => {
   if (gesture.type==="tplrot"){
     const st=S.templates[gesture.id]; if(!st) return;
     const base=normT(st), [bx,by]=bindShift(base), ng={...base};
-    if (base.shape==="rect"){ const st15=Math.PI/12; ng.ang=Math.round(Math.atan2(wy-(base.cy+by),wx-(base.cx+bx))/st15)*st15; }
+    if (base.shape==="pat"){ ng.ang=Math.round(Math.atan2(wy-(base.oy+by),wx-(base.ox+bx))/(Math.PI/4))*(Math.PI/4); }
+    else if (base.shape==="rect"){ const st15=Math.PI/12; ng.ang=Math.round(Math.atan2(wy-(base.cy+by),wx-(base.cx+bx))/st15)*st15; }
     else { const dx=wx-(base.ox+bx), dy=wy-(base.oy+by); ng.len=Math.max(1,Math.round(Math.hypot(dx,dy)))*S.cfg.meters; if (base.shape!=="circle") ng.ang=Math.round(Math.atan2(dy,dx)/(Math.PI/24))*(Math.PI/24); }
     S.tplDrag={id:gesture.id, geom:ng}; draw(); return;
   }
   if (gesture.type==="tpl" && S.draft){
     const t=S.draft;
     if (Math.hypot(wx-gesture.sx, wy-gesture.sy) > 0.35) gesture.moved=true;
+    if (t.shape==="pat"){ const dx=wx-t.ox, dy=wy-t.oy; if (Math.hypot(dx,dy)>0.6) t.ang=Math.round(Math.atan2(dy,dx)/(Math.PI/4))*(Math.PI/4); draw(); return; }
     if (t.shape==="rect"){ t.x1=clamp(Math.floor(wx),0,S.cfg.cols-1); t.y1=clamp(Math.floor(wy),0,S.cfg.rows-1); }
     else { const dx=wx-t.ox, dy=wy-t.oy; t.len=Math.max(1,Math.round(Math.hypot(dx,dy)))*S.cfg.meters; if (Math.hypot(dx,dy)>0.2) t.ang = t.shape==="circle" ? 0 : Math.round(Math.atan2(dy,dx)/(Math.PI/24))*(Math.PI/24); }
     draw(); return;
@@ -732,7 +768,8 @@ function endPointer(e){
   }
   if (gesture.type==="tpl" && S.draft){
     const t=S.draft; S.draft=null;
-    if (!gesture.moved) toast("按住後拖曳，拉出範圍大小");
+    if (t.shape==="pat") S.patAng=t.ang;
+    if (!gesture.moved && t.shape!=="pat") toast("按住後拖曳，拉出範圍大小");
     else { const id=uid(); putTemplate(id,{...normT(t), ownerId:S.me, at:Date.now()}); S.selTpl=id; S.sel=null; S.tool="select"; renderTools(); renderPanel();
       toast("已切回選取：拖曳可移動，拖白點可旋轉，拖到棋子上停 3 秒可綁定"); }
   }
@@ -746,7 +783,8 @@ function endPointer(e){
       if (tk){
         const f=FOOT[tk.size]||1, [bx,by]=bindShift(g);
         g=shiftT(g,bx,by);
-        if (g.shape!=="rect") g={...g, ox:tk.x+f/2, oy:tk.y+f/2};
+        if (g.shape==="pat") g={...g, ox:Math.floor(tk.x+f/2)+0.5, oy:Math.floor(tk.y+f/2)+0.5};
+        else if (g.shape!=="rect") g={...g, ox:tk.x+f/2, oy:tk.y+f/2};
         g={...g, bind:{tid:gesture.bindTo, ax:tk.x, ay:tk.y}};
         putTemplate(gesture.id, g); toast(`已綁定到「${tk.name}」，會跟著它移動`);
       } else if (gesture.type==="tplrot" || gesture.moved) putTemplate(gesture.id, g);
@@ -831,6 +869,7 @@ $("#zoom").addEventListener("click", e=>{ const b=e.target.closest("button"); if
 
 /* ============ 工具列 ============ */
 const ICONS = {
+  pat:'<path d="M4 4h4v4H4zM16 4h4v4h-4zM10 10h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4z" fill="currentColor" opacity=".9"/>',
   select:'<path d="M5 3l14 8-6 1.5L10 19z" fill="currentColor"/>',
   ruler:'<path d="M3 17L17 3l4 4L7 21z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2" stroke="currentColor" stroke-width="1.6"/>',
   circle:'<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/>',
@@ -846,7 +885,7 @@ const ICONS = {
 };
 const svg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg>`;
 function renderTools(){
-  const T=[["select","選取"],["ruler","量尺"],null,["circle","圓形"],["cone","錐形",`${S.coneAngle}°`],["rect","矩形"],["line","直線"]];
+  const pn=S.patterns[S.patSel]?.name||""; const T=[["select","選取"],["ruler","量尺"],null,["circle","圓形"],["cone","錐形",`${S.coneAngle}°`],["rect","矩形"],["line","直線"],["pat","自訂",pn.length>5?pn.slice(0,5)+"…":pn]];
   let h="";
   for (const t of T){ if(!t){ h+='<span class="divider"></span>'; continue; }
     h+=`<button class="tool" data-tool="${t[0]}" aria-pressed="${S.tool===t[0]}">${svg(t[0])}<span>${t[1]}</span>${t[2]?`<span class="sub num">${t[2]}</span>`:""}</button>`; }
@@ -864,6 +903,8 @@ $("#tools").addEventListener("click", e => {
   const b=e.target.closest("button"); if(!b) return;
   if (b.dataset.tool){
     const t=b.dataset.tool;
+    if (t==="pat" && (S.tool==="pat" || !S.patterns[S.patSel])){ S.tool="pat"; renderTools(); openPatPanel(); return; }
+    if (t==="pat") toast(`「${S.patterns[S.patSel].name}」：點格子或自己的棋子放置，按住拖曳轉方向（8 方向）。再按一次「自訂」換範圍`);
     if (t==="cone" && S.tool==="cone"){ S.coneAngle = S.coneAngle===90?60:S.coneAngle===60?53:90; toast(`錐形角度 ${S.coneAngle}°`); }
     S.tool=t; if(t!=="ruler") S.ruler=null; if (t==="bg") toast("拖曳移動底圖，用 −/+ 或滑鼠滾輪縮放"); renderTools(); draw(); return;
   }
@@ -904,7 +945,7 @@ $("#btnPanel").onclick=()=>{ $("#sheet").classList.contains("open") ? closeSheet
 $("#btnPreview").onclick=()=>{ S.preview=!S.preview; $("#btnPreview").setAttribute("aria-pressed",S.preview); visCache.key=null; draw(); };
 function openSheet(tab){ S.tab=tab||S.tab; $("#sheet").classList.add("open"); renderPanel(); }
 function closeSheet(){ $("#sheet").classList.remove("open"); }
-function tabsFor(){ const t=[["token","棋子"],["init","回合"],["players","認領"]]; if (S.isGM) t.push(["music","音樂"],["map","地圖"],["saves","存檔"]); return t; }
+function tabsFor(){ const t=[["token","棋子"],["init","回合"],["pats","範圍"],["players","認領"]]; if (S.isGM) t.push(["music","音樂"],["map","地圖"],["saves","存檔"]); return t; }
 let panelDirty=false;
 function renderPanel(){
   if (!$("#sheet").classList.contains("open")) return;
@@ -914,7 +955,7 @@ function renderPanel(){
   const tabs=tabsFor(); if(!tabs.some(t=>t[0]===S.tab)) S.tab="token";
   $("#tabs").innerHTML = tabs.map(([k,n])=>`<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${n}</button>`).join("") + `<button class="close" aria-label="關閉面板" data-close>×</button>`;
   const body=$("#sheetBody");
-  body.innerHTML = S.tab==="token"?panelToken() : S.tab==="players"?panelPlayers() : S.tab==="init"?panelInit() : S.tab==="map"?panelMap() : S.tab==="music"?panelMusic() : panelSaves();
+  body.innerHTML = S.tab==="token"?panelToken() : S.tab==="players"?panelPlayers() : S.tab==="init"?panelInit() : S.tab==="map"?panelMap() : S.tab==="music"?panelMusic() : S.tab==="pats"?panelPats() : panelSaves();
 }
 $("#tabs").addEventListener("click", e => { const b=e.target.closest("button"); if(!b) return; if (b.dataset.close!==undefined) return closeSheet(); S.tab=b.dataset.tab; renderPanel(); });
 function onlineIds(){ return Object.entries(S.peers).filter(([id,p])=>id!==S.me && p && p.name).map(([id])=>id); }
@@ -1072,6 +1113,7 @@ body.addEventListener("click", async e => {
   const b=e.target.closest("button[data-act]"); if(!b) return;
   const a=b.dataset.act, id=b.dataset.id;
   if (a.startsWith("mu")){ musicPanelClick(a,id); return; }
+  if (a.startsWith("pat")){ patPanelClick(a,id); return; }
   if (a==="delTpl"){ delTemplate(S.selTpl); S.selTpl=null; renderPanel(); }
   if (a==="delTok"){ const tid=S.sel; if(!canDeleteToken(S.tokens[tid])) return; deleteTokenFull(tid); renderPanel(); }
   if (a==="unbindTpl") unbindTpl(S.selTpl);
@@ -1255,6 +1297,75 @@ async function uploadTokImg(tid, file){
     const id=uid(); await ref(`${R}/images/${id}`).set({data, at:Date.now(), kind:"token"});
     const im=new Image(); im.onload=()=>{ tokImgs[R+"/"+id]={img:im,src:data}; if (S.tokens[tid]) patchToken(tid,{img:id}); renderPanel(); toast(`棋子圖片已更新（${Math.round(data.length*0.75/1024)} KB）`); }; im.src=data;
   }catch(err){ onWriteError(err); }
+}
+
+/* ============ 自訂範圍 ============ */
+const PAT_R = 8;
+function patMini(cells, r){
+  const set=new Set((cells||"").split(";")); r=Math.min(PAT_R, Math.max(2, r||patReach(cells))); const n=2*r+1;
+  let h=`<span class="pat-mini" style="grid-template-columns:repeat(${n},4px)" aria-hidden="true">`;
+  for (let y=-r;y<=r;y++) for (let x=-r;x<=r;x++) h+=`<i class="${x===0&&y===0?"me":set.has(x+","+y)?"on":""}"></i>`;
+  return h+"</span>";
+}
+function openPatPanel(){ openSheet("pats"); }
+function canEditPat(p){ return p && (S.isGM || p.by===S.me); }
+function panelPats(){
+  const list=Object.entries(S.patterns).sort((a,b)=>(a[1].at||0)-(b[1].at||0));
+  let h=`<p class="hint">自己畫攻擊範圍的形狀，例如「前方三格的兩個角」或「從自己放射出去的三條線」。放到地圖上時以藍色格子（自己）為中心，可以轉 8 個方向。</p>
+  <div class="row"><button class="btn primary" data-act="patNew">＋ 新增自訂範圍</button></div>`;
+  h+=`<h3>範圍清單</h3>`;
+  if (!list.length) return h+`<p class="empty">還沒有。按上面的按鈕畫一個。</p>`;
+  h+=`<div class="list">`+list.map(([id,p])=>{ const on=S.patSel===id && S.tool==="pat";
+    return `<div class="item" style="${on?"border:2px solid var(--brass)":""}">${patMini(p.cells)}<span class="nm">${esc(p.name)}<br><span class="meta">${patList(p.cells).length} 格 · ${esc(p.byName||"")}</span></span><button class="btn ${on?"":"primary"}" data-act="patUse" data-id="${id}">${on?"使用中":"使用"}</button>${canEditPat(p)?`<button class="btn" data-act="patEdit" data-id="${id}">編輯</button><button class="btn warn" data-act="patDel" data-id="${id}" aria-label="刪除">刪</button>`:`<button class="btn" data-act="patCopy" data-id="${id}">複製</button>`}</div>`; }).join("")+`</div>`;
+  h+=`<p class="hint">清單整個房間共用，大家都能使用；只有建立的人和 GM 能修改或刪除，其他人可以「複製」一份再改。</p>`;
+  return h;
+}
+async function patPanelClick(a, id){
+  const p=S.patterns[id];
+  if (a==="patNew"){ const r=await editPattern(null); if (r) usePat(r); }
+  if (a==="patUse" && p) usePat(id);
+  if (a==="patEdit" && canEditPat(p)) await editPattern(id);
+  if (a==="patCopy" && p){ const nid=uid(); S.patterns[nid]={name:(p.name+" 副本").slice(0,24), cells:p.cells, by:S.me, byName:S.myName||(S.isGM?"GM":""), at:Date.now()}; w(ref(`${R}/patterns/${nid}`).set(S.patterns[nid])); await editPattern(nid); }
+  if (a==="patDel" && canEditPat(p)){ if (!await confirmBox("刪除自訂範圍",`刪除「${p.name}」？地圖上已放好的範圍不會受影響。`,"刪除")) return;
+    delete S.patterns[id]; w(ref(`${R}/patterns/${id}`).remove()); if (S.patSel===id){ S.patSel=""; lsSet("bm-pat",null); } renderTools(); }
+  renderPanel();
+}
+function usePat(id){ S.patSel=id; lsSet("bm-pat",id); S.tool="pat"; renderTools(); renderPanel(); draw();
+  if (window.innerWidth<700) closeSheet();
+  toast(`使用「${S.patterns[id]?.name||""}」：點格子或自己的棋子放置，按住拖曳轉方向`); }
+function editPattern(id){
+  const p=id?S.patterns[id]:null, cells=new Set(p?(p.cells||"").split(";").filter(Boolean):[]);
+  return new Promise(res=>{
+    const m=$("#modal"), n=2*PAT_R+1;
+    let g=""; for (let y=-PAT_R;y<=PAT_R;y++) for (let x=-PAT_R;x<=PAT_R;x++){ const k=x+","+y, me=!x&&!y;
+      g+=`<div data-k="${k}" class="${me?"me":(cells.has(k)?"on ":"")+(!x||!y?"ax":"")}">${me?"★":(!x&&y===-PAT_R?"↑":"")}</div>`; }
+    m.innerHTML=`<div class="gate-card pat-card"><h2>${p?"編輯":"新增"}自訂範圍</h2>
+      <p class="hint">★ 是自己（施放的中心），↑ 是面對的方向。點或拖曳格子塗紅，再點一次取消。每格 ${S.cfg.meters} 米。</p>
+      <label class="fld"><span>名稱</span><input type="text" id="patName" maxlength="24" value="${esc(p?p.name:"")}" placeholder="例如：三叉衝擊" autocomplete="off"></label>
+      <div class="pat-grid" id="patGrid" style="grid-template-columns:repeat(${n},1fr)">${g}</div>
+      <p class="hint" id="patInfo"></p><p class="err" id="patErr"></p>
+      <div class="row" style="justify-content:space-between"><button class="btn" data-p="clear">清空</button><span><button class="btn" data-p="0">取消</button> <button class="btn primary" data-p="1">儲存</button></span></div></div>`;
+    m.classList.add("open");
+    const grid=m.querySelector("#patGrid"), info=()=>{ m.querySelector("#patInfo").textContent=`已選 ${cells.size} 格`; };
+    info();
+    let paint=null;
+    const cellAt=e=>{ const el=document.elementFromPoint(e.clientX,e.clientY); return el && el.parentNode===grid && el.dataset.k && el.dataset.k!=="0,0" ? el : null; };
+    const setCell=(el,v)=>{ const k=el.dataset.k; if (v) cells.add(k); else cells.delete(k); el.classList.toggle("on",v); info(); };
+    grid.onpointerdown=e=>{ const el=cellAt(e); if(!el) return; e.preventDefault(); paint=!cells.has(el.dataset.k); setCell(el,paint); try{ grid.setPointerCapture(e.pointerId); }catch{} };
+    grid.onpointermove=e=>{ if (paint===null) return; const el=cellAt(e); if (el && cells.has(el.dataset.k)!==paint) setCell(el,paint); };
+    grid.onpointerup=grid.onpointercancel=()=>{ paint=null; };
+    const finish=v=>{ m.classList.remove("open"); m.innerHTML=""; m.onclick=null; m.onkeydown=null; res(v); };
+    m.onclick=e=>{ const b=e.target.closest("button[data-p]"); if(!b) return; const c=b.dataset.p;
+      if (c==="0") return finish(null);
+      if (c==="clear"){ cells.clear(); grid.querySelectorAll(".on").forEach(el=>el.classList.remove("on")); info(); return; }
+      const name=m.querySelector("#patName").value.trim().slice(0,24);
+      if (!name){ m.querySelector("#patErr").textContent="請取個名稱"; m.querySelector("#patName").focus(); return; }
+      if (!cells.size){ m.querySelector("#patErr").textContent="至少要塗一格"; return; }
+      const nid=id||uid(), data={...(p||{}), name, cells:[...cells].join(";"), by:p?p.by:S.me, byName:p?(p.byName||""):(S.myName||(S.isGM?"GM":"")), at:p?p.at:Date.now()};
+      S.patterns[nid]=data; w(ref(`${R}/patterns/${nid}`).set(data)); renderTools(); toast(`已儲存「${name}」`); finish(nid);
+    };
+    m.onkeydown=e=>{ if(e.key==="Escape") finish(null); };
+  });
 }
 
 /* ============ 音樂 ============ */
@@ -1758,6 +1869,7 @@ function subscribeRoom(){
     visCache.key=null; renderPanel(); updateHud(); draw();
     if (f2){ f2=false; done(); }
   });
+  listen(`${R}/patterns`, v=>{ S.patterns=v||{}; renderTools(); if (S.tab==="pats") renderPanel(); });
   listen(`${R}/templates`, v=>{ S.templates=v||{}; if (S.selTpl && !S.templates[S.selTpl]) S.selTpl=null; draw(); if (f3){ f3=false; done(); } });
   listen(`${R}/combat`, v=>{
     const order=normOrder(v&&v.order);
