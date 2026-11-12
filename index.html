@@ -2194,6 +2194,7 @@ const fmtT = t => { t=Math.max(0,Math.floor(t||0)); const h=Math.floor(t/3600), 
 
 function parseMusicUrl(raw){
   raw=(raw||"").trim(); if (!raw) return {err:"請先貼上網址"};
+  if (!/^(https?|spotify):/i.test(raw)){ const f=/(https?:\/\/[^\s"'<>　-〿＀-￯]+)/i.exec(raw); if (f) raw=f[1]; } // 分享文字裡抓出網址
   let m=/^spotify:(track|album|playlist|episode|show|artist):([A-Za-z0-9]+)$/.exec(raw);
   if (m) return {kind:"spotify", src:`${m[1]}/${m[2]}`};
   let u; try{ u=new URL(raw); }catch{ return {err:"網址格式不對，要以 https:// 開頭"}; }
@@ -2204,7 +2205,9 @@ function parseMusicUrl(raw){
     const v=u.searchParams.get("v") || (/\/(?:shorts|embed|live|v)\/([\w-]{11})/.exec(u.pathname)||[])[1] || "", list=u.searchParams.get("list")||"";
     if (!v && !list) return {err:"找不到 YouTube 影片或播放清單 ID"};
     const p=new URLSearchParams(); if(v) p.set("v",v); if(list) p.set("list",list); return {kind:"youtube", src:p.toString()}; }
-  if (h==="b23.tv") return {err:"Bilibili 短網址無法解析，請在瀏覽器打開後複製完整的 bilibili.com/video/BV… 網址"};
+  if (h==="b23.tv"||h==="bili2233.cn"){ const mm=/^\/(BV[0-9A-Za-z]{10}|av\d+)/i.exec(u.pathname);
+    if (mm){ const p=new URLSearchParams(); if (/^av/i.test(mm[1])) p.set("aid",mm[1].slice(2)); else p.set("bvid",mm[1]); p.set("p",u.searchParams.get("p")||"1"); return {kind:"bilibili", src:p.toString()}; }
+    return {short:u.origin+u.pathname}; }
   if (h.endsWith("bilibili.com")){
     const mm=/\/video\/(BV[0-9A-Za-z]{10}|av\d+)/i.exec(u.pathname); if(!mm) return {err:"找不到 Bilibili 影片編號（BV…）"};
     const p=new URLSearchParams(); if (/^av/i.test(mm[1])) p.set("aid",mm[1].slice(2)); else p.set("bvid",mm[1]); p.set("p",u.searchParams.get("p")||"1"); return {kind:"bilibili", src:p.toString()}; }
@@ -2213,6 +2216,15 @@ function parseMusicUrl(raw){
     return {kind:"spotify", src:`${mm[1]}/${mm[2]}`}; }
   if (h==="dropbox.com"){ u.searchParams.delete("dl"); u.searchParams.set("raw","1"); }
   return {kind:"audio", src:u.toString()};
+}
+/* b23.tv 短網址：瀏覽器跨網域讀不到跳轉，透過公開轉址服務查出最終網址 */
+async function resolveShort(short){
+  const tries=[
+    async()=>{ const r=await fetch("https://r.jina.ai/"+short); const t=await r.text(); return (/Final URL:\s*(\S+)/.exec(t)||[])[1] || (/bilibili\.com\/video\/(?:BV[0-9A-Za-z]{10}|av\d+)[^\s)"']*/i.exec(t)||[])[0]; },
+    async()=>{ const r=await fetch("https://api.allorigins.win/get?url="+encodeURIComponent(short)); const j=await r.json(); return (j.status&&j.status.url) || (/bilibili\.com\/video\/(?:BV[0-9A-Za-z]{10}|av\d+)/i.exec(j.contents||"")||[])[0]; },
+  ];
+  for (const f of tries){ try{ let u=await Promise.race([f(), new Promise((_,rej)=>setTimeout(()=>rej(),9000))]); if (u){ if (!/^https?:/.test(u)) u="https://www."+u; const p=parseMusicUrl(u); if (p.kind) return p; } }catch{} }
+  return {err:"Bilibili 短網址解析失敗，請在瀏覽器打開後複製完整的 bilibili.com/video/BV… 網址"};
 }
 function guessTitle(p){ if (p.kind==="audio"){ try{ const n=decodeURIComponent(new URL(p.src).pathname.split("/").pop()||""); if(n) return n.replace(/\.[a-z0-9]{2,4}$/i,""); }catch{} return "音樂連結"; }
   if (p.kind==="spotify") return "Spotify "+({track:"歌曲",album:"專輯",playlist:"歌單",episode:"單集",show:"節目",artist:"歌手"}[p.src.split("/")[0]]||"");
@@ -2430,7 +2442,9 @@ async function musicPanelClick(a, id){
   if (a==="muToggle" && M.state) (M.state.playing?mPause:mPlay)();
   if (a==="muLoop" && M.state){ mSet({...M.state, loop:id==="one", all:id==="all"}); }
   if (a==="muPlayUrl"||a==="muAddUrl"){
-    const p=parseMusicUrl($("#muUrl").value); if (p.err){ toast(p.err); return; }
+    let p=parseMusicUrl($("#muUrl").value);
+    if (p.short){ toast("解析 Bilibili 短網址中…"); p=await resolveShort(p.short); }
+    if (p.err){ toast(p.err); return; }
     const title=$("#muName").value.trim().slice(0,60);
     if (a==="muAddUrl"){ const nid=uid(); M.playlist[nid]={kind:p.kind, src:p.src, title, at:Date.now()}; w(ref(`${R}/playlist/${nid}`).set(M.playlist[nid])); toast("已加入清單"); }
     else mLoad({...p,title});
@@ -2712,7 +2726,6 @@ function startLocal(){
   subscribeRoom(); startSaves(); setRole(); renderAll(); renderMusic();
   setTimeout(()=>{ if (!Object.keys(S.tokens).length){
     for (const [id,t] of Object.entries(defaultPCs(1))) putToken(id,t);
-    putToken("demo2",{name:"巨魔",size:"large",color:PALETTE[6],vision:16,claimable:false,hidden:false,x:5,y:10,at:2});
   } }, 300);
 }
 async function boot(){
