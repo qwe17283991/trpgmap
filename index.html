@@ -618,8 +618,8 @@ cv.addEventListener("pointerdown", e => {
   pointers.set(e.pointerId,{x:e.offsetX,y:e.offsetY});
   if (pointers.size===2){ cancelGesture(); const [a,b]=[...pointers.values()]; gesture={type:"pinch",d:Math.hypot(a.x-b.x,a.y-b.y)||1,mx:(a.x+b.x)/2,my:(a.y+b.y)/2,s:S.view.s,vx:S.view.x,vy:S.view.y}; return; }
   if (pointers.size>2) return;
-  const [wx,wy]=s2w(e.offsetX,e.offsetY), tool=S.tool;
-  if (e.button===1 || e.button===2){ gesture=panG(e); return; }
+  const [wx,wy]=s2w(e.offsetX,e.offsetY), tool = e.button===2 ? "select" : S.tool; // 右鍵＝暫時用選取
+  if (e.button===1){ gesture=panG(e); gesture.tap=true; gesture.midDeselect=true; return; } // 中鍵：點一下取消選取，拖曳平移
   if (tool==="bg" && S.isGM && bgImg){ const b=bgFields(); S.bgDraft={...b}; gesture={type:"bgmove",sx:wx,sy:wy,b}; draw(); return; }
   if (tool==="select"){
     const st=S.selTpl && S.templates[S.selTpl];
@@ -716,7 +716,8 @@ function endPointer(e){
     if (!d.moved && d.wasSel){ S.sel=null; renderPanel(); }
     sendDrag(null);
   }
-  if (gesture.type==="pan" && gesture.tap){
+  if (gesture.type==="pan" && gesture.tap && gesture.midDeselect){ if (S.sel||S.selTpl){ S.sel=null; S.selTpl=null; renderPanel(); } }
+  else if (gesture.type==="pan" && gesture.tap){
     if (gesture.tapDeselect){ S.sel=null; renderPanel(); }
     if (gesture.moveTo){ const t=S.tokens[S.sel];
       if (t && canControl(t)){ const [x,y]=snapToken(t, gesture.moveTo[0], gesture.moveTo[1]);
