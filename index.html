@@ -477,6 +477,29 @@ function tplLabel(t){
 /* ============ 畫布 ============ */
 const cv=$("#cv"), ctx=cv.getContext("2d");
 let bgImg=null, bgData=null;
+/* 格子線依底圖顏色自動換色：亮處用深色線、暗處用淺色線，色相跟著底圖走 */
+const gridCache={key:"",lines:null};
+function gridLines(){
+  if (!bgImg) return null;
+  const {cols,rows}=S.cfg, b=bgBox(), key=[bgData&&bgData.length,cols,rows,b.x,b.y,b.w,b.h].join("|");
+  if (gridCache.key===key) return gridCache.lines;
+  gridCache.key=key; gridCache.lines=null;
+  try{
+    const k=4, c=document.createElement("canvas"); c.width=cols*k; c.height=rows*k; const x=c.getContext("2d",{willReadFrequently:true});
+    x.fillStyle="#3a4a46"; x.fillRect(0,0,c.width,c.height); x.drawImage(bgImg,b.x*k,b.y*k,b.w*k,b.h*k);
+    const d=x.getImageData(0,0,c.width,c.height).data;
+    const px=(cx,cy)=>{ cx=Math.max(0,Math.min(cols-1,cx)); cy=Math.max(0,Math.min(rows-1,cy)); let r=0,g=0,bb=0; for (let yy=0;yy<k;yy++) for (let xx=0;xx<k;xx++){ const i=((cy*k+yy)*c.width+cx*k+xx)*4; r+=d[i]; g+=d[i+1]; bb+=d[i+2]; } const n=k*k; return [r/n,g/n,bb/n]; };
+    const cell=[]; for (let cy=0;cy<rows;cy++){ const row=[]; for (let cx=0;cx<cols;cx++) row.push(px(cx,cy)); cell.push(row); }
+    const style=(A,B)=>{ const r=(A[0]+B[0])/2, g=(A[1]+B[1])/2, bb=(A[2]+B[2])/2, L=(0.299*r+0.587*g+0.114*bb)/255, q=v=>Math.round(v/32)*32;
+      if (L>0.55) return `rgba(${q(r*.25)},${q(g*.25)},${q(bb*.25)},.42)`;
+      return `rgba(${q(r+(255-r)*.7)},${q(g+(255-g)*.7)},${q(bb+(255-bb)*.7)},${L<0.2?.3:.38})`; };
+    const map=new Map(), add=(st,a,bq,v)=>{ let arr=map.get(st); if(!arr) map.set(st,arr=[]); arr.push(a,bq,v); };
+    for (let cy=0;cy<rows;cy++) for (let cx=0;cx<=cols;cx++) add(style(cell[cy][Math.max(0,cx-1)],cell[cy][Math.min(cols-1,cx)]),cx,cy,1);
+    for (let cy=0;cy<=rows;cy++) for (let cx=0;cx<cols;cx++) add(style(cell[Math.max(0,cy-1)][cx],cell[Math.min(rows-1,cy)][cx]),cx,cy,0);
+    gridCache.lines=[...map.entries()];
+  }catch{ gridCache.lines=null; }
+  return gridCache.lines;
+}
 function setBgData(data){ if (data===bgData) return; bgData=data; bgImg=null; if(!data){ draw(); return; } const im=new Image(); im.onload=()=>{ bgImg=im; draw(); }; im.src=data; }
 function bgBox(){ // 底圖在格子座標中的位置；沒設定寬度時沿用舊版「拉伸填滿」
   const c=S.bgDraft||S.cfg, {cols,rows}=S.cfg;
@@ -511,10 +534,15 @@ function paint(){
   for(let i=0;i<walls.length;i++) if(walls.charCodeAt(i)===49){ ctx.fillRect((i%cols)*s,((i/cols)|0)*s,s,s); }
   ctx.strokeStyle="rgba(210,190,140,.55)"; ctx.lineWidth=1;
   for(let i=0;i<walls.length;i++) if(walls.charCodeAt(i)===49){ const x=i%cols, y=(i/cols)|0; ctx.beginPath(); ctx.moveTo(x*s,y*s+s); ctx.lineTo(x*s+s,y*s); ctx.stroke(); }
-  ctx.strokeStyle="rgba(232,238,226,.28)"; ctx.lineWidth=1; ctx.beginPath();
-  for(let x=0;x<=cols;x++){ ctx.moveTo(x*s+.5,0); ctx.lineTo(x*s+.5,rows*s); }
-  for(let y=0;y<=rows;y++){ ctx.moveTo(0,y*s+.5); ctx.lineTo(cols*s,y*s+.5); }
-  ctx.stroke(); ctx.strokeStyle="rgba(232,238,226,.6)"; ctx.strokeRect(0,0,cols*s,rows*s);
+  const gl=gridLines(); ctx.lineWidth=1;
+  if (!gl){ ctx.strokeStyle="rgba(232,238,226,.28)"; ctx.beginPath();
+    for(let x=0;x<=cols;x++){ ctx.moveTo(x*s+.5,0); ctx.lineTo(x*s+.5,rows*s); }
+    for(let y=0;y<=rows;y++){ ctx.moveTo(0,y*s+.5); ctx.lineTo(cols*s,y*s+.5); }
+    ctx.stroke(); }
+  else for (const [style,segs] of gl){ ctx.strokeStyle=style; ctx.beginPath();
+    for (let i=0;i<segs.length;i+=3){ const a=segs[i], b=segs[i+1]; if (segs[i+2]){ ctx.moveTo(a*s+.5,b*s); ctx.lineTo(a*s+.5,(b+1)*s); } else { ctx.moveTo(a*s,b*s+.5); ctx.lineTo((a+1)*s,b*s+.5); } }
+    ctx.stroke(); }
+  ctx.strokeStyle= gl ? "rgba(255,255,255,.55)" : "rgba(232,238,226,.6)"; ctx.strokeRect(0,0,cols*s,rows*s);
 
   const tpls=Object.entries(S.templates).map(([id,t])=>({id,...effT(id,t)}));
   if (S.draft) tpls.push({id:"__draft",...normT(S.draft)});
@@ -1067,7 +1095,8 @@ function panelInit(){
 }
 function panelMap(){
   const c=S.cfg;
-  return `<h3>地圖範本</h3><p class="hint">點一張套用：會改變格子大小、換上程式畫的底圖，地城類還會自動設好牆壁（開戰爭迷霧時擋視線）。</p>${presetCards("preset")}
+  return `<h3>場景插圖</h3><p class="hint">一張讓玩家感受氣氛的插圖，直接鋪成底圖；格子大小與牆壁不變，格子線會自動配合插圖換色。</p>${sceneCards()}
+  <h3>地圖範本</h3><p class="hint">點一張套用：會改變格子大小、換上程式畫的底圖，地城類還會自動設好牆壁（開戰爭迷霧時擋視線）。</p>${presetCards("preset")}
   <h3>格子</h3>
   <div class="row"><label for="mCols">寬</label><input type="number" inputmode="numeric" class="num" id="mCols" min="4" max="${MAX_GRID}" value="${c.cols}"><label for="mRows" style="min-width:auto">高</label><input type="number" inputmode="numeric" class="num" id="mRows" min="4" max="${MAX_GRID}" value="${c.rows}"><span class="hint">格</span></div>
   <div class="row"><label for="mMeters">每格</label><input type="number" inputmode="decimal" class="num" id="mMeters" min="0.5" max="100" step="0.5" value="${c.meters}"><span class="hint">米（本規則預設 2 米）</span></div>
@@ -1102,7 +1131,7 @@ function panelSaves(){
 const body=$("#sheetBody");
 body.addEventListener("focusout", ()=>{ setTimeout(()=>{ if (panelDirty) renderPanel(); }, 0); });
 body.addEventListener("input", e => { if (e.target.id==="muVolP"){ setVol(+e.target.value); const v=$("#muVol"); if(v) v.value=M.vol; } });
-body.addEventListener("click", e => { const b=e.target.closest("button[data-preset]"); if (b) applyPreset(b.dataset.preset); });
+body.addEventListener("click", e => { const b=e.target.closest("button[data-preset]"); if (b) applyPreset(b.dataset.preset); const sb=e.target.closest("button[data-scene]"); if (sb) applyScene(sb.dataset.scene); });
 body.addEventListener("click", e => { const b=e.target.closest("button[data-tc]"); if (b && S.selTpl){ setTplColor(S.selTpl,b.dataset.tc); } });
 body.addEventListener("change", e => { if (e.target.matches("[data-tc-in]") && S.selTpl) setTplColor(S.selTpl,e.target.value); });
 body.addEventListener("change", e => {
@@ -1742,6 +1771,184 @@ async function applyPreset(id){
 function presetCards(act){
   return `<div class="preset-grid">${MAP_PRESETS.map(p=>{ const th=presetThumb(p);
     return `<button type="button" class="preset" data-${act}="${p.id}">${th?`<img src="${th}" alt="">`:`<span class="preset-blank" style="aspect-ratio:${p.cols}/${p.rows}"></span>`}<b>${esc(p.name)}</b><span>${p.cols}×${p.rows} · ${esc(p.desc)}</span></button>`; }).join("")}</div>`;
+}
+
+/* ============ 場景插圖（程式繪製，鋪成底圖用） ============ */
+function scSky(c,W,H,stops){ const g=c.createLinearGradient(0,0,0,H); stops.forEach(([t,col])=>g.addColorStop(t,col)); c.fillStyle=g; c.fillRect(0,0,W,H); }
+function scGlow(c,x,y,r,col,a=1){ const g=c.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,col); g.addColorStop(1,"rgba(0,0,0,0)"); c.globalAlpha=a; c.fillStyle=g; c.fillRect(x-r,y-r,r*2,r*2); c.globalAlpha=1; }
+function scStars(c,rnd,W,H,n){ for (let i=0;i<n;i++){ c.fillStyle=`rgba(255,255,255,${.3+rnd()*.7})`; const s=rnd()<.9?1:2; c.fillRect(rnd()*W,rnd()*H,s,s); } }
+function scRidge(c,rnd,W,H,base,amp,col,rough=.55,steps=7){ // 山稜線（中點位移）
+  let pts=[base+(rnd()-.5)*amp, base+(rnd()-.5)*amp]; let a=amp;
+  for (let k=0;k<steps;k++){ const n=[]; for (let i=0;i<pts.length-1;i++){ n.push(pts[i], (pts[i]+pts[i+1])/2+(rnd()-.5)*a); } n.push(pts[pts.length-1]); pts=n; a*=rough; }
+  c.fillStyle=col; c.beginPath(); c.moveTo(0,H); pts.forEach((y,i)=>c.lineTo(i/(pts.length-1)*W,y)); c.lineTo(W,H); c.closePath(); c.fill();
+}
+function scFog(c,W,y,h,col){ const g=c.createLinearGradient(0,y-h,0,y+h); g.addColorStop(0,"rgba(0,0,0,0)"); g.addColorStop(.5,col); g.addColorStop(1,"rgba(0,0,0,0)"); c.fillStyle=g; c.fillRect(0,y-h,W,h*2); }
+function scCloud(c,rnd,x,y,w,col){ c.fillStyle=col; for (let i=0;i<7;i++){ c.beginPath(); c.ellipse(x+(rnd()-.5)*w*.8,y+(rnd()-.5)*w*.12,w*(.18+rnd()*.15),w*(.08+rnd()*.06),0,0,7); c.fill(); } }
+function scSkyline(c,rnd,W,base,hMin,hMax,col,win,dens=.5,wMin=.04,wMax=.1){ // 建築剪影＋窗光
+  let x=-rnd()*W*.05; while (x<W){ const w=W*(wMin+rnd()*(wMax-wMin)), h=hMin+rnd()*(hMax-hMin);
+    c.fillStyle=col; c.fillRect(x,base-h,w,h+2);
+    if (rnd()<.3){ c.fillRect(x+w*.4,base-h-h*.12,w*.2,h*.12); }
+    if (win){ const s=Math.max(2,w*.09); for (let yy=base-h+s*2; yy<base-s; yy+=s*2.2) for (let xx=x+s; xx<x+w-s; xx+=s*2) if (rnd()<dens){ c.fillStyle=win[Math.floor(rnd()*win.length)]; c.fillRect(xx,yy,s,s*1.2); } }
+    x+=w+W*.004*rnd(); }
+}
+function scPine(c,x,y,h,col){ c.fillStyle=col; c.beginPath(); for (let k=0;k<4;k++){ const t=y-h+h*k*.24, w=h*(.14+k*.07); c.moveTo(x,t); c.lineTo(x+w,t+h*.32); c.lineTo(x-w,t+h*.32); } c.fill(); c.fillRect(x-h*.025,y-h*.08,h*.05,h*.1); }
+function scTreeRound(c,rnd,x,y,h,col){ c.fillStyle=col; c.fillRect(x-h*.04,y-h*.5,h*.08,h*.5); for (let i=0;i<6;i++){ c.beginPath(); c.arc(x+(rnd()-.5)*h*.5,y-h*.62+(rnd()-.5)*h*.35,h*(.18+rnd()*.12),0,7); c.fill(); } }
+function scRain(c,rnd,W,H,n,col){ c.strokeStyle=col; c.lineWidth=1; c.beginPath(); for (let i=0;i<n;i++){ const x=rnd()*W, y=rnd()*H, l=H*(.01+rnd()*.02); c.moveTo(x,y); c.lineTo(x-l*.2,y+l); } c.stroke(); }
+function scGrain(c,rnd,W,H,a=.05){ for (let i=0;i<W*H/60;i++){ c.fillStyle=rnd()<.5?`rgba(255,255,255,${a})`:`rgba(0,0,0,${a})`; c.fillRect(rnd()*W,rnd()*H,1.5,1.5); } }
+function scVignette(c,W,H,a=.45){ const g=c.createRadialGradient(W/2,H/2,Math.min(W,H)*.3,W/2,H/2,Math.hypot(W,H)*.6); g.addColorStop(0,"rgba(0,0,0,0)"); g.addColorStop(1,`rgba(0,0,0,${a})`); c.fillStyle=g; c.fillRect(0,0,W,H); }
+
+const SCENES = [
+  { id:"s-cyber", name:"賽博龐克夜街", desc:"霓虹、雨夜、高樓",
+    paint(c,rnd,W,H){ const hz=H*.62, U=Math.min(W,H);
+      scSky(c,W,H,[[0,"#0b0820"],[.45,"#2a1046"],[.62,"#5a1f5e"],[1,"#120a1c"]]); scStars(c,rnd,W,H*.3,W*H/9000);
+      scGlow(c,W*.5,hz,U*.8,"rgba(255,60,180,.35)");
+      scSkyline(c,rnd,W,hz,H*.18,H*.5,"#1a1230",["rgba(255,80,200,.5)","rgba(80,220,255,.45)"],.25,.05,.12);
+      scFog(c,W,hz-H*.05,H*.08,"rgba(255,90,200,.18)");
+      scSkyline(c,rnd,W,hz+H*.02,H*.1,H*.35,"#0f0b1c",["rgba(255,210,120,.7)","rgba(90,240,255,.7)","rgba(255,90,200,.7)"],.35,.08,.16);
+      // 地面與倒影
+      const g=c.createLinearGradient(0,hz,0,H); g.addColorStop(0,"#1b1028"); g.addColorStop(1,"#07050c"); c.fillStyle=g; c.fillRect(0,hz,W,H-hz);
+      for (let i=0;i<14;i++){ const x=rnd()*W, col=["#ff3cc8","#38e8ff","#ffb03a","#a0ff4a"][Math.floor(rnd()*4)], w=W*(.01+rnd()*.025), h=H*(.05+rnd()*.12), y=hz-H*(.08+rnd()*.25);
+        c.save(); c.shadowColor=col; c.shadowBlur=U*.03; c.fillStyle=col; c.fillRect(x,y,w,h); c.restore();
+        c.globalAlpha=.25; c.fillStyle=col; c.fillRect(x,hz+(hz-y-h)*.4,w,h*.9); c.globalAlpha=1; }
+      c.strokeStyle="rgba(255,255,255,.12)"; c.lineWidth=Math.max(1,U*.003); c.beginPath(); for (let i=-6;i<=6;i++){ c.moveTo(W/2+i*W*.02,hz); c.lineTo(W/2+i*W*.25,H); } c.stroke();
+      scRain(c,rnd,W,H,W*H/1200,"rgba(180,200,255,.22)"); scVignette(c,W,H,.55); scGrain(c,rnd,W,H,.04); } },
+  { id:"s-japan", name:"和風村莊．黃昏", desc:"夕陽、五重塔、鳥居、櫻花",
+    paint(c,rnd,W,H){ const hz=H*.6, U=Math.min(W,H);
+      scSky(c,W,H,[[0,"#3b3a6b"],[.35,"#d8708a"],[.55,"#f6b57a"],[.62,"#f8d79a"],[1,"#5a4a5a"]]);
+      scGlow(c,W*.62,hz-H*.06,U*.55,"rgba(255,220,150,.9)"); c.fillStyle="#ffe7b0"; c.beginPath(); c.arc(W*.62,hz-H*.06,U*.07,0,7); c.fill();
+      for (let i=0;i<5;i++) scCloud(c,rnd,rnd()*W,H*(.12+rnd()*.3),W*(.2+rnd()*.25),"rgba(255,200,190,.35)");
+      scRidge(c,rnd,W,H,hz-H*.12,H*.18,"#8c6a86"); scRidge(c,rnd,W,H,hz-H*.04,H*.12,"#6a4c6c");
+      // 五重塔
+      const tx=W*.28, tb=hz+H*.02, th=H*.32; c.fillStyle="#2d1e2e"; for (let k=0;k<5;k++){ const y=tb-th*k/5, w=W*.09*(1-k*.13); c.beginPath(); c.moveTo(tx-w,y-th*.03); c.quadraticCurveTo(tx,y-th*.11,tx+w,y-th*.03); c.lineTo(tx+w*.7,y-th*.07); c.lineTo(tx-w*.7,y-th*.07); c.fill(); c.fillRect(tx-w*.45,y-th*.2,w*.9,th*.14); } c.fillRect(tx-W*.003,tb-th*1.12,W*.006,th*.15);
+      // 民家屋頂
+      const ground=c.createLinearGradient(0,hz,0,H); ground.addColorStop(0,"#4a3448"); ground.addColorStop(1,"#22161f"); c.fillStyle=ground; c.fillRect(0,hz,W,H-hz);
+      for (let i=0;i<7;i++){ const x=rnd()*W, w=W*(.08+rnd()*.08), y=hz+H*(.01+rnd()*.06); c.fillStyle="#2a1d2a"; c.beginPath(); c.moveTo(x-w*.6,y); c.quadraticCurveTo(x,y-H*.07,x+w*.6,y); c.fill(); c.fillRect(x-w*.42,y,w*.84,H*.05); c.fillStyle="rgba(255,200,120,.75)"; c.fillRect(x-w*.1,y+H*.015,w*.08,H*.02); }
+      // 鳥居
+      const gx=W*.72, gy=hz+H*.2, gw=W*.2, gh=H*.2; c.fillStyle="#b8322a"; c.fillRect(gx-gw*.38,gy-gh,gw*.06,gh); c.fillRect(gx+gw*.32,gy-gh,gw*.06,gh); c.fillRect(gx-gw*.45,gy-gh*.82,gw*.9,gh*.06);
+      c.fillStyle="#1d1416"; c.beginPath(); c.moveTo(gx-gw*.58,gy-gh*1.02); c.quadraticCurveTo(gx,gy-gh*.95,gx+gw*.58,gy-gh*1.02); c.lineTo(gx+gw*.55,gy-gh*.92); c.lineTo(gx-gw*.55,gy-gh*.92); c.fill();
+      // 櫻花樹與花瓣
+      for (const [x,y,r] of [[W*.08,H*.78,U*.22],[W*.95,H*.7,U*.2],[W*.45,H*.92,U*.16]]){ c.strokeStyle="#2a1a20"; c.lineWidth=U*.025; c.beginPath(); c.moveTo(x,H); c.quadraticCurveTo(x+r*.2,y+r*.3,x,y); c.stroke(); for (let i=0;i<26;i++){ c.fillStyle=["rgba(248,180,200,.85)","rgba(255,205,220,.85)","rgba(230,140,170,.8)"][i%3]; c.beginPath(); c.arc(x+(rnd()-.5)*r*1.6,y+(rnd()-.5)*r*.9,r*(.12+rnd()*.14),0,7); c.fill(); } }
+      for (let i=0;i<W*H/2500;i++){ c.fillStyle="rgba(255,200,215,.8)"; c.beginPath(); c.ellipse(rnd()*W,rnd()*H,U*.006,U*.003,rnd()*3,0,7); c.fill(); }
+      scVignette(c,W,H,.35); scGrain(c,rnd,W,H,.035); } },
+  { id:"s-coast", name:"海岸．晴天", desc:"藍天、大海、沙灘與棕櫚",
+    paint(c,rnd,W,H){ const hz=H*.5, U=Math.min(W,H);
+      scSky(c,W,H,[[0,"#3f8fd6"],[.5,"#bfe3f5"]]); scGlow(c,W*.8,H*.15,U*.4,"rgba(255,255,230,.9)"); c.fillStyle="#fffbe6"; c.beginPath(); c.arc(W*.8,H*.15,U*.05,0,7); c.fill();
+      for (let i=0;i<6;i++) scCloud(c,rnd,rnd()*W,H*(.08+rnd()*.3),W*(.15+rnd()*.25),"rgba(255,255,255,.85)");
+      scRidge(c,rnd,W*.45,H,hz-H*.03,H*.06,"#7d9fb0");
+      const sea=c.createLinearGradient(0,hz,0,H*.8); sea.addColorStop(0,"#2d78a8"); sea.addColorStop(1,"#3fc3c8"); c.fillStyle=sea; c.fillRect(0,hz,W,H*.3+2);
+      c.strokeStyle="rgba(255,255,255,.4)"; c.lineWidth=Math.max(1,U*.003); for (let i=0;i<W*H/2500;i++){ const y=hz+Math.pow(rnd(),1.5)*H*.3, x=rnd()*W, l=W*.01*(1+(y-hz)/(H*.1)); c.beginPath(); c.moveTo(x,y); c.lineTo(x+l,y); c.stroke(); }
+      c.fillStyle="rgba(255,255,240,.5)"; c.fillRect(W*.7,hz,W*.2,H*.003);
+      // 浪花與沙灘
+      const sb=H*.8; c.fillStyle="#e9d6a4"; c.beginPath(); c.moveTo(0,H); c.lineTo(0,sb); for (let x=0;x<=W;x+=W/40) c.lineTo(x,sb+Math.sin(x/W*12)*H*.012); c.lineTo(W,H); c.fill();
+      c.strokeStyle="rgba(255,255,255,.85)"; c.lineWidth=U*.008; c.beginPath(); for (let x=0;x<=W;x+=W/40) c.lineTo(x,sb-H*.006+Math.sin(x/W*12)*H*.012); c.stroke();
+      for (let i=0;i<W*H/800;i++){ c.fillStyle=rnd()<.5?"rgba(160,130,80,.25)":"rgba(255,255,255,.3)"; c.fillRect(rnd()*W,sb+rnd()*(H-sb),2,2); }
+      // 棕櫚剪影
+      for (const [x,h,lean] of [[W*.1,H*.42,.18],[W*.18,H*.32,.1]]){ const tx=x+h*lean, ty=H-h; c.strokeStyle="#5a4128"; c.lineWidth=U*.022; c.beginPath(); c.moveTo(x,H); c.quadraticCurveTo(x,H-h*.5,tx,ty); c.stroke();
+        c.fillStyle="#2f5e2a"; for (let i=0;i<8;i++){ const a=-Math.PI*.95+i/7*Math.PI*.9+(rnd()-.5)*.2, l=h*(.35+rnd()*.15); c.save(); c.translate(tx,ty); c.rotate(a); c.beginPath(); c.moveTo(0,0); c.quadraticCurveTo(l*.5,-l*.15,l,l*.25); c.quadraticCurveTo(l*.5,l*.05,0,0); c.fill(); c.restore(); } }
+      c.strokeStyle="#334"; c.lineWidth=Math.max(1,U*.004); for (let i=0;i<4;i++){ const x=W*(.4+rnd()*.5), y=H*(.15+rnd()*.2), s=U*.02; c.beginPath(); c.moveTo(x-s,y); c.quadraticCurveTo(x-s/2,y-s*.5,x,y); c.quadraticCurveTo(x+s/2,y-s*.5,x+s,y); c.stroke(); }
+      scVignette(c,W,H,.25); } },
+  { id:"s-steam", name:"蒸汽龐克都市", desc:"煙囪、齒輪、鐘樓與飛艇",
+    paint(c,rnd,W,H){ const hz=H*.68, U=Math.min(W,H);
+      scSky(c,W,H,[[0,"#4a3a2a"],[.4,"#b8864a"],[.7,"#e2b878"],[1,"#3a2a1c"]]); scGlow(c,W*.3,H*.35,U*.5,"rgba(255,210,140,.6)");
+      for (let i=0;i<8;i++) scCloud(c,rnd,rnd()*W,H*(.1+rnd()*.4),W*(.2+rnd()*.3),"rgba(120,90,60,.25)");
+      // 飛艇
+      const ax=W*.7, ay=H*.22, aw=U*.3; c.fillStyle="#5a3e28"; c.beginPath(); c.ellipse(ax,ay,aw*.5,aw*.16,0,0,7); c.fill(); c.fillStyle="rgba(255,220,160,.25)"; c.beginPath(); c.ellipse(ax-aw*.05,ay-aw*.06,aw*.4,aw*.05,0,0,7); c.fill(); c.fillStyle="#3a2818"; c.fillRect(ax-aw*.12,ay+aw*.16,aw*.24,aw*.07); c.strokeStyle="#3a2818"; c.lineWidth=1; c.beginPath(); c.moveTo(ax-aw*.2,ay+aw*.12); c.lineTo(ax-aw*.12,ay+aw*.17); c.moveTo(ax+aw*.2,ay+aw*.12); c.lineTo(ax+aw*.12,ay+aw*.17); c.stroke(); c.beginPath(); c.moveTo(ax+aw*.5,ay); c.lineTo(ax+aw*.62,ay-aw*.12); c.lineTo(ax+aw*.62,ay+aw*.12); c.fill();
+      scSkyline(c,rnd,W,hz,H*.15,H*.35,"#6a4a32",null,0,.05,.1);
+      // 煙囪與煙
+      for (let i=0;i<7;i++){ const x=rnd()*W, h=H*(.3+rnd()*.25), w=W*.018; c.fillStyle="#3a2a1e"; c.fillRect(x,hz-h,w,h); for (let j=0;j<8;j++){ c.fillStyle=`rgba(90,80,70,${.35-j*.035})`; c.beginPath(); c.arc(x+w/2+j*U*.025,hz-h-j*U*.035,U*(.02+j*.008),0,7); c.fill(); } }
+      // 鐘樓
+      const cx=W*.5, ct=hz-H*.5; c.fillStyle="#2e2018"; c.fillRect(cx-W*.05,ct,W*.1,H*.5); c.beginPath(); c.moveTo(cx-W*.06,ct); c.lineTo(cx,ct-H*.1); c.lineTo(cx+W*.06,ct); c.fill();
+      c.fillStyle="#e8d2a0"; c.beginPath(); c.arc(cx,ct+H*.07,U*.045,0,7); c.fill(); c.strokeStyle="#2e2018"; c.lineWidth=U*.006; c.beginPath(); c.moveTo(cx,ct+H*.07); c.lineTo(cx,ct+H*.07-U*.035); c.moveTo(cx,ct+H*.07); c.lineTo(cx+U*.025,ct+H*.07); c.stroke();
+      scSkyline(c,rnd,W,hz+H*.04,H*.08,H*.25,"#2a1c14",["rgba(255,190,90,.8)"],.3,.07,.14);
+      const g=c.createLinearGradient(0,hz,0,H); g.addColorStop(0,"#2a1c14"); g.addColorStop(1,"#120c08"); c.fillStyle=g; c.fillRect(0,hz+H*.04,W,H);
+      mpGear(c,W*.12,H*.9,U*.16,12,"#a07a38"); mpGear(c,W*.3,H*.97,U*.09,9,"#7a5a2a"); mpGear(c,W*.92,H*.88,U*.12,10,"#8a6a30");
+      c.strokeStyle="#9a6a2a"; c.lineWidth=U*.012; c.beginPath(); c.moveTo(0,hz+H*.12); c.lineTo(W,hz+H*.12); c.stroke();
+      scVignette(c,W,H,.5); scGrain(c,rnd,W,H,.05); } },
+  { id:"s-city", name:"摩天大樓．黃昏", desc:"從頂樓望出去的城市天際線",
+    paint(c,rnd,W,H){ const hz=H*.72, U=Math.min(W,H);
+      scSky(c,W,H,[[0,"#1c2a5a"],[.45,"#6a5a9a"],[.65,"#f09a6a"],[.72,"#ffd08a"],[1,"#1a1a2a"]]); scGlow(c,W*.4,hz,U*.6,"rgba(255,190,120,.8)");
+      for (let i=0;i<5;i++) scCloud(c,rnd,rnd()*W,H*(.1+rnd()*.35),W*(.25+rnd()*.3),"rgba(255,170,150,.3)");
+      scSkyline(c,rnd,W,hz,H*.1,H*.3,"#4a4a7a",["rgba(255,230,170,.5)"],.2,.03,.07);
+      scSkyline(c,rnd,W,hz+H*.02,H*.2,H*.55,"#2a2a4a",["rgba(255,220,150,.75)","rgba(170,210,255,.6)"],.35,.05,.1);
+      scFog(c,W,hz,H*.05,"rgba(255,180,140,.25)");
+      // 頂樓前景：欄杆與地面
+      const rf=H*.86; c.fillStyle="#3a3a44"; c.fillRect(0,rf,W,H-rf); c.fillStyle="#55555f"; c.fillRect(0,rf,W,H*.012);
+      c.strokeStyle="#22222a"; c.lineWidth=U*.008; c.beginPath(); c.moveTo(0,rf-H*.06); c.lineTo(W,rf-H*.06); for (let x=0;x<=W;x+=W/16){ c.moveTo(x,rf-H*.06); c.lineTo(x,rf); } c.stroke();
+      c.fillStyle="#ff3a3a"; for (let i=0;i<4;i++){ const x=rnd()*W, y=hz-H*(.2+rnd()*.3); scGlow(c,x,y,U*.02,"rgba(255,60,60,.9)"); }
+      scVignette(c,W,H,.4); scGrain(c,rnd,W,H,.03); } },
+  { id:"s-dungeon", name:"地城走廊", desc:"火把照亮的石拱長廊",
+    paint(c,rnd,W,H){ const U=Math.min(W,H), vx=W/2, vy=H*.48;
+      c.fillStyle="#141016"; c.fillRect(0,0,W,H);
+      // 一層層石拱往遠處縮小
+      for (let k=9;k>=0;k--){ const t=Math.pow(.72,k), aw=W*.48*t, ah=H*.46*t, top=vy-ah, bot=vy+ah*.95, col=mixHex("#5a4e48","#120e12",1-Math.pow(.8,k));
+        c.fillStyle=col; c.beginPath(); c.moveTo(vx-aw*1.08,bot); c.lineTo(vx-aw*1.08,top+aw*.4); c.quadraticCurveTo(vx-aw*1.08,top-aw*.15,vx,top-aw*.18); c.quadraticCurveTo(vx+aw*1.08,top-aw*.15,vx+aw*1.08,top+aw*.4); c.lineTo(vx+aw*1.08,bot);
+        c.lineTo(vx+aw*.86,bot); c.lineTo(vx+aw*.86,top+aw*.4); c.quadraticCurveTo(vx+aw*.86,top,vx,top-aw*.02); c.quadraticCurveTo(vx-aw*.86,top,vx-aw*.86,top+aw*.4); c.lineTo(vx-aw*.86,bot); c.closePath(); c.fill();
+        c.strokeStyle="rgba(0,0,0,.35)"; c.lineWidth=Math.max(1,U*.004*t); for (let y=top+aw*.4;y<bot;y+=H*.04*t){ c.beginPath(); c.moveTo(vx-aw*1.08,y); c.lineTo(vx-aw*.86,y); c.moveTo(vx+aw*.86,y); c.lineTo(vx+aw*1.08,y); c.stroke(); }
+        if (k%2===0 && k<8){ for (const sd of [-1,1]){ const fx=vx+sd*aw*.9, fy=top+ah*.55; scGlow(c,fx,fy,U*.35*t,"rgba(255,160,70,.55)"); c.fillStyle="#ffd27a"; c.beginPath(); c.ellipse(fx,fy-U*.01*t,U*.008*t+1,U*.018*t+1,0,0,7); c.fill(); c.fillStyle="#3a2a1a"; c.fillRect(fx-U*.004*t,fy,U*.008*t+1,U*.03*t); } } }
+      // 地板透視
+      const fg=c.createLinearGradient(0,vy,0,H); fg.addColorStop(0,"#1a1418"); fg.addColorStop(1,"#3a302c"); c.fillStyle=fg; c.beginPath(); c.moveTo(vx-W*.05,vy+H*.02); c.lineTo(vx+W*.05,vy+H*.02); c.lineTo(W*1.1,H); c.lineTo(-W*.1,H); c.fill();
+      c.strokeStyle="rgba(0,0,0,.4)"; c.lineWidth=Math.max(1,U*.003); for (let i=-5;i<=5;i++){ c.beginPath(); c.moveTo(vx+i*W*.01,vy+H*.02); c.lineTo(vx+i*W*.22,H); c.stroke(); } for (let k=1;k<12;k++){ const y=vy+H*.02+(H-vy)*Math.pow(k/12,2); c.beginPath(); c.moveTo(0,y); c.lineTo(W,y); c.stroke(); }
+      scGlow(c,vx,vy,U*.15,"rgba(120,200,255,.25)");
+      scVignette(c,W,H,.7); scGrain(c,rnd,W,H,.05); } },
+  { id:"s-forest", name:"迷霧森林", desc:"晨霧、光束、層層樹林",
+    paint(c,rnd,W,H){ const U=Math.min(W,H);
+      scSky(c,W,H,[[0,"#c8dccf"],[.6,"#8fb39a"],[1,"#2a3a2c"]]);
+      const layers=[["#9ab8a4",.06,.5],["#7a9e86",.1,.62],["#56785e",.14,.75],["#33503a",.2,.9],["#1c2e20",.3,1.05]];
+      layers.forEach(([col,w,base],li)=>{ for (let x=-W*.05;x<W*1.05;x+=W*w*(.5+rnd())){ const th=W*w*.12, h=H*base; c.fillStyle=col; c.fillRect(x,H-h,th,h); c.beginPath(); for (let i=0;i<4;i++){ c.ellipse(x+th/2+(rnd()-.5)*W*w*.6,H-h+(rnd())*H*.08,W*w*.35,H*.06,0,0,7); } c.fill(); }
+        scFog(c,W,H*(.55+li*.08),H*.08,"rgba(230,240,230,.35)"); });
+      c.globalCompositeOperation="lighter"; for (let i=0;i<5;i++){ const x=W*(.2+rnd()*.6); const g=c.createLinearGradient(x,0,x+W*.15,H); g.addColorStop(0,"rgba(255,250,210,.18)"); g.addColorStop(1,"rgba(255,250,210,0)"); c.fillStyle=g; c.beginPath(); c.moveTo(x,0); c.lineTo(x+W*.04,0); c.lineTo(x+W*.25,H); c.lineTo(x+W*.12,H); c.fill(); } c.globalCompositeOperation="source-over";
+      c.fillStyle="#13201a"; c.fillRect(0,H*.94,W,H*.06); for (let i=0;i<W/6;i++){ c.beginPath(); c.ellipse(rnd()*W,H*.95,U*.03,U*.015,0,0,7); c.fill(); }
+      scVignette(c,W,H,.35); scGrain(c,rnd,W,H,.03); } },
+  { id:"s-snow", name:"雪山極光", desc:"夜空極光、雪峰與雪松",
+    paint(c,rnd,W,H){ const U=Math.min(W,H), hz=H*.62;
+      scSky(c,W,H,[[0,"#050a1c"],[.5,"#10244a"],[.7,"#1c3a5a"],[1,"#0a1222"]]); scStars(c,rnd,W,H*.6,W*H/2500);
+      c.globalCompositeOperation="lighter"; for (let b=0;b<3;b++){ const y0=H*(.15+b*.08); for (let x=0;x<W;x+=2){ const y=y0+Math.sin(x/W*6+b*2)*H*.05+Math.sin(x/W*17+b)*H*.015, h=H*(.12+.08*Math.sin(x/W*9+b)); const g=c.createLinearGradient(0,y,0,y+h); g.addColorStop(0,"rgba(80,255,170,0)"); g.addColorStop(.6,`rgba(${b===1?"120,200,255":"80,255,170"},.12)`); g.addColorStop(1,"rgba(80,255,170,0)"); c.fillStyle=g; c.fillRect(x,y,2,h); } } c.globalCompositeOperation="source-over";
+      scRidge(c,rnd,W,H,hz-H*.12,H*.5,"#c8d6e8",.62,6); scRidge(c,rnd,W,H,hz-H*.04,H*.22,"#8ea6c4",.58); scRidge(c,rnd,W,H,hz+H*.02,H*.08,"#5a7092",.6);
+      const g=c.createLinearGradient(0,hz,0,H); g.addColorStop(0,"#d8e4f0"); g.addColorStop(1,"#8ea0bc"); c.fillStyle=g; c.fillRect(0,hz+H*.08,W,H);
+      for (let i=0;i<W/U*14;i++){ const x=rnd()*W, y=hz+H*(.06+rnd()*.32), h=H*.04+(y-hz)*.5; scPine(c,x,y,h,"#1c2c3a"); c.fillStyle="rgba(255,255,255,.7)"; c.beginPath(); c.moveTo(x,y-h); c.lineTo(x+h*.08,y-h*.8); c.lineTo(x-h*.08,y-h*.8); c.fill(); }
+      for (let i=0;i<W*H/1500;i++){ c.fillStyle="rgba(255,255,255,.7)"; c.beginPath(); c.arc(rnd()*W,rnd()*H,rnd()*U*.003+.5,0,7); c.fill(); }
+      scVignette(c,W,H,.4); } },
+  { id:"s-desert", name:"沙漠遺跡", desc:"烈日、沙丘與傾倒石柱",
+    paint(c,rnd,W,H){ const U=Math.min(W,H), hz=H*.58;
+      scSky(c,W,H,[[0,"#3a7ab8"],[.5,"#f0d8a8"],[.58,"#f8e2b0"]]); scGlow(c,W*.25,H*.2,U*.5,"rgba(255,250,220,.9)"); c.fillStyle="#fffbe8"; c.beginPath(); c.arc(W*.25,H*.2,U*.06,0,7); c.fill();
+      // 遠方神殿
+      const tx=W*.68, ty=hz; c.fillStyle="#b89a72"; c.fillRect(tx-W*.14,ty-H*.04,W*.28,H*.04); for (let i=0;i<7;i++){ if (i===4) continue; c.fillRect(tx-W*.12+i*W*.04,ty-H*.17,W*.018,H*.13); } c.beginPath(); c.moveTo(tx-W*.14,ty-H*.17); c.lineTo(tx,ty-H*.24); c.lineTo(tx+W*.07,ty-H*.2); c.lineTo(tx+W*.07,ty-H*.17); c.fill();
+      [["#e6c08a",hz,.05],["#d8a86a",hz+H*.08,.07],["#c8925a",hz+H*.2,.09],["#b07a48",hz+H*.32,.1]].forEach(([col,base,amp])=>{ c.fillStyle=col; c.beginPath(); c.moveTo(0,H); const ph=rnd()*6; for (let x=0;x<=W;x+=W/60) c.lineTo(x,base+Math.sin(x/W*4+ph)*H*amp*.6+Math.sin(x/W*9+ph)*H*amp*.2); c.lineTo(W,H); c.fill();
+        c.strokeStyle="rgba(255,240,200,.25)"; c.lineWidth=Math.max(1,U*.003); c.beginPath(); for (let x=0;x<=W;x+=W/60) c.lineTo(x,base+Math.sin(x/W*4+ph)*H*amp*.6+Math.sin(x/W*9+ph)*H*amp*.2); c.stroke(); });
+      // 倒下的石柱
+      c.save(); c.translate(W*.25,H*.86); c.rotate(-.12); c.fillStyle="#8a6a48"; c.fillRect(-W*.15,-H*.03,W*.3,H*.06); c.fillStyle="rgba(255,255,255,.15)"; c.fillRect(-W*.15,-H*.03,W*.3,H*.015); c.fillStyle="#7a5a3a"; c.beginPath(); c.ellipse(W*.15,0,W*.012,H*.03,0,0,7); c.fill(); c.restore();
+      c.fillStyle="#9a7a52"; c.fillRect(W*.82,H*.66,W*.04,H*.22); c.fillRect(W*.8,H*.64,W*.08,H*.025);
+      c.strokeStyle="rgba(255,240,210,.25)"; c.lineWidth=1; for (let i=0;i<30;i++){ const y=hz+rnd()*H*.4, x=rnd()*W; c.beginPath(); c.moveTo(x,y); c.quadraticCurveTo(x+W*.05,y-H*.01,x+W*.1,y); c.stroke(); }
+      scVignette(c,W,H,.3); scGrain(c,rnd,W,H,.04); } },
+  { id:"s-grave", name:"月夜墓園", desc:"滿月、枯樹、墓碑剪影與霧",
+    paint(c,rnd,W,H){ const U=Math.min(W,H), hz=H*.7;
+      scSky(c,W,H,[[0,"#0a0f1a"],[.5,"#1c2a3a"],[.75,"#3a4a5a"],[1,"#0a0e14"]]); scStars(c,rnd,W,H*.5,W*H/4000);
+      const mx=W*.68, my=H*.25; scGlow(c,mx,my,U*.45,"rgba(220,230,255,.45)"); c.fillStyle="#eef2f8"; c.beginPath(); c.arc(mx,my,U*.1,0,7); c.fill(); c.fillStyle="rgba(150,160,180,.35)"; for (const [dx,dy,r] of [[-.03,-.02,.02],[.02,.03,.015],[.035,-.03,.01]]){ c.beginPath(); c.arc(mx+dx*U,my+dy*U,r*U,0,7); c.fill(); }
+      for (let i=0;i<4;i++) scCloud(c,rnd,rnd()*W,H*(.2+rnd()*.25),W*(.3+rnd()*.3),"rgba(40,50,70,.5)");
+      scRidge(c,rnd,W,H,hz-H*.05,H*.06,"#1a222c",.6);
+      // 教堂剪影
+      const cx=W*.2; c.fillStyle="#10151c"; c.fillRect(cx-W*.06,hz-H*.16,W*.12,H*.16); c.beginPath(); c.moveTo(cx-W*.07,hz-H*.16); c.lineTo(cx,hz-H*.24); c.lineTo(cx+W*.07,hz-H*.16); c.fill(); c.fillRect(cx-W*.012,hz-H*.34,W*.024,H*.12); c.beginPath(); c.moveTo(cx-W*.02,hz-H*.34); c.lineTo(cx,hz-H*.4); c.lineTo(cx+W*.02,hz-H*.34); c.fill(); c.fillStyle="rgba(255,200,120,.6)"; c.fillRect(cx-W*.008,hz-H*.1,W*.016,H*.04);
+      c.fillStyle="#0c1016"; c.fillRect(0,hz,W,H-hz);
+      for (let i=0;i<W/U*10;i++){ const x=rnd()*W, y=hz+H*(.02+rnd()*.25), s=U*(.03+(y-hz)/H*.15); c.fillStyle=mixHex("#3a4656","#1c232e",rnd()); if (rnd()<.3){ c.fillRect(x-s*.12,y-s*1.1,s*.24,s*1.1); c.fillRect(x-s*.4,y-s*.85,s*.8,s*.2); } else { c.beginPath(); c.moveTo(x-s*.35,y); c.lineTo(x-s*.35,y-s*.7); c.arc(x,y-s*.7,s*.35,Math.PI,0); c.lineTo(x+s*.35,y); c.fill(); } }
+      mpDeadTree(c,rnd,W*.88,hz+H*.05,U*.35); c.save(); c.globalAlpha=.9; mpDeadTree(c,rnd,W*.05,hz+H*.1,U*.25); c.restore();
+      for (let i=0;i<3;i++) scFog(c,W,hz+H*(.03+i*.08),H*.05,"rgba(170,185,205,.22)");
+      scVignette(c,W,H,.55); scGrain(c,rnd,W,H,.04); } },
+];
+function sceneThumb(sc){ return presetThumbs[sc.id] || (presetThumbs[sc.id]=renderScene(sc, 7, 176, 110).toDataURL("image/jpeg",.8)); }
+function renderScene(sc, seed, W, H){ const c=document.createElement("canvas"); c.width=W; c.height=H; sc.paint(c.getContext("2d"), mulberry(seed), W, H); return c; }
+async function applyScene(id){
+  const sc=SCENES.find(x=>x.id===id); if (!sc || !S.isGM) return;
+  if (!await confirmBox(`鋪上「${sc.name}」`, `用這張插圖當底圖，格子大小（${S.cfg.cols}×${S.cfg.rows}）和牆壁都不變，插圖會依照地圖比例重新繪製。格子線會自動配合插圖換色。`, "鋪上")) return;
+  toast("繪製插圖中…"); await new Promise(r=>setTimeout(r,30));
+  try{
+    const {cols,rows}=S.cfg, k=1600/Math.max(cols,rows), cv2=renderScene(sc, (Math.random()*1e9)|0, Math.round(cols*k), Math.round(rows*k));
+    const data=canWebp?cv2.toDataURL("image/webp",.85):cv2.toDataURL("image/jpeg",.85), iid=uid();
+    await ref(`${R}/images/${iid}`).set({data, at:Date.now()});
+    patchCfg({bgId:iid, bgX:0, bgY:0, bgW:cols}); renderTools(); renderPanel(); toast(`已鋪上「${sc.name}」（${Math.round(data.length*.75/1024)} KB）`);
+  }catch(err){ onWriteError(err); }
+}
+function sceneCards(){
+  return `<div class="preset-grid">${SCENES.map(sc=>`<button type="button" class="preset" data-scene="${sc.id}"><img src="${sceneThumb(sc)}" alt=""><b>${esc(sc.name)}</b><span>${esc(sc.desc)}</span></button>`).join("")}</div>`;
 }
 
 /* ============ 自訂範圍 ============ */
