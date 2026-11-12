@@ -38,6 +38,7 @@ header{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(-
 header h1{font-size:16px;margin:0;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .role{font-size:12px;padding:2px 8px;border-radius:3px;font-weight:700;white-space:nowrap}
 .role.gm{background:var(--brass);color:var(--brass-ink)}
+.role.floor{background:var(--chip);color:var(--ink);border:1px solid var(--line);cursor:pointer;font:inherit;font-size:12px}
 .role.pl{background:var(--player);color:var(--paper)}
 .role.solo{background:var(--chip);color:var(--ink-2)}
 header .sp{flex:1}
@@ -168,6 +169,7 @@ input[type=color]{width:40px;height:34px;padding:0;border:1px solid var(--line);
   <header>
     <h1 id="title">戰術地圖</h1>
     <span id="role" class="role solo">單機</span>
+    <button id="floorTag" class="role floor" hidden></button>
     <span class="sp"></span>
     <button class="hbtn" id="btnPreview" aria-pressed="false" hidden>玩家視角</button>
     <button class="hbtn" id="btnInvite" hidden>邀請</button>
@@ -307,7 +309,7 @@ const S = {
   myName: ls("bm-name") || "",
   isGM: false, online: false, room: "", meta: null,
   view: {x:40, y:40, s:44},
-  tool: "select", coneAngle: 90, patterns: {}, patSel: ls("bm-pat")||"",
+  tool: "select", coneAngle: 90, floors: {}, areaSel: "", patterns: {}, patSel: ls("bm-pat")||"",
   sel: null, selTpl: null, preview: false,
   drag: null, draft: null, ruler: null, paint: null, tplDrag: null,
   peers: {}, saves: [], tab: "token", tokensReady:false,
@@ -330,8 +332,9 @@ function removeFromCombat(tid){
 }
 function pruneCombat(){
   const c=S.combat, order=c.order||[];
-  if (!order.some(e=>e.tid && !S.tokens[e.tid])) return;
-  const cur=order[c.turn]; const nord=order.filter(e=>!(e.tid && !S.tokens[e.tid]));
+  const gone=e=>e.tid && !S.tokens[e.tid] && !floorTok(e.tid);
+  if (!order.some(gone)) return;
+  const cur=order[c.turn]; const nord=order.filter(e=>!gone(e));
   let turn=nord.indexOf(cur); if (turn<0) turn=Math.min(c.turn, nord.length-1);
   putCombat({...c, order:nord, turn:Math.max(0,turn)});
 }
@@ -347,7 +350,7 @@ function nameOf(id){ if(!id) return ""; if (id===S.me) return "你"; if (S.peers
 
 /* ============ 視野 / 戰爭迷霧 ============ */
 const visCache = {key:null, set:null};
-function isWall(cx, cy){ const {cols,rows}=S.cfg; if(cx<0||cy<0||cx>=cols||cy>=rows) return true; return bitGet(S.cfg.walls||"", cy*cols+cx); }
+function isWall(cx, cy){ const {cols,rows}=S.cfg; if(cx<0||cy<0||cx>=cols||cy>=rows) return true; return bitGet(S.cfg.walls||"", cy*cols+cx) || isVoid(cx,cy); }
 function losClear(sx, sy, tx, ty, tcx, tcy){
   const dx=tx-sx, dy=ty-sy, len=Math.hypot(dx,dy), steps=Math.max(1, Math.ceil(len/0.2));
   for(let i=1;i<steps;i++){ const x=sx+dx*i/steps, y=sy+dy*i/steps, cx=Math.floor(x), cy=Math.floor(y); if (cx===tcx && cy===tcy) continue; if (isWall(cx,cy)) return false; }
@@ -364,7 +367,7 @@ function viewers(){
 function hash(s){ s=s||""; let h=s.length; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))|0; return h; }
 function visibleCells(){
   const {cols,rows} = S.cfg, vs = viewers();
-  const key = JSON.stringify([cols,rows,hash(S.cfg.walls),hash(S.cfg.reveal),S.cfg.meters,S.isGM,vs.map(t=>[t.x,t.y,t.size,t.vision])]);
+  const key = JSON.stringify([cols,rows,hash(S.cfg.walls),hash(S.cfg.reveal),hash(S.cfg.void),S.cfg.meters,S.isGM,vs.map(t=>[t.x,t.y,t.size,t.vision])]);
   if (visCache.key === key) return visCache.set;
   const vis = new Uint8Array(cols*rows), rv = ensureBits(S.cfg.reveal);
   for (let i=0;i<vis.length;i++) if (rv.charCodeAt(i)===49) vis[i]=1;
@@ -383,6 +386,7 @@ function visibleCells(){
 const fogActive = () => S.cfg.fog && (!S.isGM || S.preview);
 function tokenSeen(t){
   if (t.hidden && !S.isGM) return false;
+  if (t.ownerId!==S.me && areaCover() && S.cfg.areas && tokInHidden(t)) return false;
   if (!fogActive() || t.ownerId===S.me) return true;
   const vis=visibleCells(), {cols,rows}=S.cfg, f=FOOT[t.size]||1;
   for (let cy=Math.floor(t.y); cy<Math.ceil(t.y+f); cy++) for (let cx=Math.floor(t.x); cx<Math.ceil(t.x+f); cx++) if(cx>=0&&cy>=0&&cx<cols&&cy<rows&&vis[cy*cols+cx]) return true;
@@ -477,27 +481,32 @@ function tplLabel(t){
 /* ============ 畫布 ============ */
 const cv=$("#cv"), ctx=cv.getContext("2d");
 let bgImg=null, bgData=null;
-/* 格子線依底圖顏色自動換色：亮處用深色線、暗處用淺色線，色相跟著底圖走 */
+/* 格子線：依底圖顏色漸變（亮處偏深、暗處偏淺、色相跟著底圖），並略過地圖外的格子 */
 const gridCache={key:"",lines:null};
 function gridLines(){
-  if (!bgImg) return null;
-  const {cols,rows}=S.cfg, b=bgBox(), key=[bgData&&bgData.length,cols,rows,b.x,b.y,b.w,b.h].join("|");
+  const {cols,rows}=S.cfg, vd=hasVoid()?S.cfg.void:"", b=bgImg?bgBox():null;
+  const key=[bgImg&&bgData?bgData.length:0,cols,rows,b?[b.x,b.y,b.w,b.h].join(","):"",hash(vd)].join("|");
   if (gridCache.key===key) return gridCache.lines;
-  gridCache.key=key; gridCache.lines=null;
-  try{
+  gridCache.key=key;
+  const inside=(x,y)=>x>=0&&y>=0&&x<cols&&y<rows&&!(vd&&vd.charCodeAt(y*cols+x)===49);
+  let cell=null;
+  if (bgImg) try{
     const k=4, c=document.createElement("canvas"); c.width=cols*k; c.height=rows*k; const x=c.getContext("2d",{willReadFrequently:true});
     x.fillStyle="#3a4a46"; x.fillRect(0,0,c.width,c.height); x.drawImage(bgImg,b.x*k,b.y*k,b.w*k,b.h*k);
-    const d=x.getImageData(0,0,c.width,c.height).data;
-    const px=(cx,cy)=>{ cx=Math.max(0,Math.min(cols-1,cx)); cy=Math.max(0,Math.min(rows-1,cy)); let r=0,g=0,bb=0; for (let yy=0;yy<k;yy++) for (let xx=0;xx<k;xx++){ const i=((cy*k+yy)*c.width+cx*k+xx)*4; r+=d[i]; g+=d[i+1]; bb+=d[i+2]; } const n=k*k; return [r/n,g/n,bb/n]; };
-    const cell=[]; for (let cy=0;cy<rows;cy++){ const row=[]; for (let cx=0;cx<cols;cx++) row.push(px(cx,cy)); cell.push(row); }
-    const style=(A,B)=>{ const r=(A[0]+B[0])/2, g=(A[1]+B[1])/2, bb=(A[2]+B[2])/2, L=(0.299*r+0.587*g+0.114*bb)/255, q=v=>Math.round(v/32)*32;
-      if (L>0.55) return `rgba(${q(r*.25)},${q(g*.25)},${q(bb*.25)},.42)`;
-      return `rgba(${q(r+(255-r)*.7)},${q(g+(255-g)*.7)},${q(bb+(255-bb)*.7)},${L<0.2?.3:.38})`; };
-    const map=new Map(), add=(st,a,bq,v)=>{ let arr=map.get(st); if(!arr) map.set(st,arr=[]); arr.push(a,bq,v); };
-    for (let cy=0;cy<rows;cy++) for (let cx=0;cx<=cols;cx++) add(style(cell[cy][Math.max(0,cx-1)],cell[cy][Math.min(cols-1,cx)]),cx,cy,1);
-    for (let cy=0;cy<=rows;cy++) for (let cx=0;cx<cols;cx++) add(style(cell[Math.max(0,cy-1)][cx],cell[Math.min(rows-1,cy)][cx]),cx,cy,0);
-    gridCache.lines=[...map.entries()];
-  }catch{ gridCache.lines=null; }
+    const d=x.getImageData(0,0,c.width,c.height).data; cell=[];
+    for (let cy=0;cy<rows;cy++){ const row=[]; for (let cx=0;cx<cols;cx++){ let r=0,g=0,bb=0; for (let yy=0;yy<k;yy++) for (let xx=0;xx<k;xx++){ const i=((cy*k+yy)*c.width+cx*k+xx)*4; r+=d[i]; g+=d[i+1]; bb+=d[i+2]; } row.push([r/16,g/16,bb/16]); } cell.push(row); }
+  }catch{ cell=null; }
+  const q=v=>Math.round(v/20)*20;
+  const style=(A,B)=>{ if (!cell) return "rgba(232,238,226,.28)";
+    const r=(A[0]+B[0])/2, g=(A[1]+B[1])/2, bb=(A[2]+B[2])/2, L=(0.299*r+0.587*g+0.114*bb)/255;
+    const t=Math.min(1,Math.max(0,(L-.28)/.44)), m=t*t*(3-2*t);
+    const lr=r+(255-r)*.72, lg=g+(255-g)*.72, lb=bb+(255-bb)*.72, dr=r*.22, dg=g*.22, db=bb*.22;
+    return `rgba(${q(lr+(dr-lr)*m)},${q(lg+(dg-lg)*m)},${q(lb+(db-lb)*m)},${(.3+.12*m).toFixed(2)})`; };
+  const C=(x,y)=>cell[Math.max(0,Math.min(rows-1,y))][Math.max(0,Math.min(cols-1,x))];
+  const map=new Map(), add=(st,a,bq,v)=>{ let arr=map.get(st); if(!arr) map.set(st,arr=[]); arr.push(a,bq,v); };
+  for (let cy=0;cy<rows;cy++) for (let cx=0;cx<=cols;cx++){ const a=inside(cx-1,cy), bI=inside(cx,cy); if (!a&&!bI) continue; add(a!==bI?"edge":style(cell&&C(cx-1,cy),cell&&C(cx,cy)),cx,cy,1); }
+  for (let cy=0;cy<=rows;cy++) for (let cx=0;cx<cols;cx++){ const a=inside(cx,cy-1), bI=inside(cx,cy); if (!a&&!bI) continue; add(a!==bI?"edge":style(cell&&C(cx,cy-1),cell&&C(cx,cy)),cx,cy,0); }
+  gridCache.lines=[...map.entries()];
   return gridCache.lines;
 }
 function setBgData(data){ if (data===bgData) return; bgData=data; bgImg=null; if(!data){ draw(); return; } const im=new Image(); im.onload=()=>{ bgImg=im; draw(); }; im.src=data; }
@@ -524,25 +533,21 @@ function paint(){
   ctx.fillRect(0,0,W,H);
   const {cols,rows}=S.cfg, s=S.view.s;
   ctx.save(); ctx.translate(S.view.x,S.view.y);
-  ctx.fillStyle="#3a4a46"; ctx.fillRect(0,0,cols*s,rows*s);
+  ctx.fillStyle="#3a4a46"; mapPath(s); ctx.fill();
   if (bgImg){ const b=bgBox();
     if (S.tool==="bg" && S.isGM){ ctx.globalAlpha=.35; ctx.drawImage(bgImg,b.x*s,b.y*s,b.w*s,b.h*s); ctx.globalAlpha=1; }
-    ctx.save(); ctx.beginPath(); ctx.rect(0,0,cols*s,rows*s); ctx.clip(); ctx.drawImage(bgImg,b.x*s,b.y*s,b.w*s,b.h*s); ctx.restore();
+    ctx.save(); mapPath(s); ctx.clip(); ctx.drawImage(bgImg,b.x*s,b.y*s,b.w*s,b.h*s); ctx.restore();
     if (S.tool==="bg" && S.isGM){ ctx.strokeStyle="#ffd36a"; ctx.lineWidth=2; ctx.setLineDash([8,5]); ctx.strokeRect(b.x*s,b.y*s,b.w*s,b.h*s); ctx.setLineDash([]); } }
   const walls=ensureBits(S.cfg.walls);
   ctx.fillStyle="rgba(18,20,22,.86)";
   for(let i=0;i<walls.length;i++) if(walls.charCodeAt(i)===49){ ctx.fillRect((i%cols)*s,((i/cols)|0)*s,s,s); }
   ctx.strokeStyle="rgba(210,190,140,.55)"; ctx.lineWidth=1;
   for(let i=0;i<walls.length;i++) if(walls.charCodeAt(i)===49){ const x=i%cols, y=(i/cols)|0; ctx.beginPath(); ctx.moveTo(x*s,y*s+s); ctx.lineTo(x*s+s,y*s); ctx.stroke(); }
-  const gl=gridLines(); ctx.lineWidth=1;
-  if (!gl){ ctx.strokeStyle="rgba(232,238,226,.28)"; ctx.beginPath();
-    for(let x=0;x<=cols;x++){ ctx.moveTo(x*s+.5,0); ctx.lineTo(x*s+.5,rows*s); }
-    for(let y=0;y<=rows;y++){ ctx.moveTo(0,y*s+.5); ctx.lineTo(cols*s,y*s+.5); }
-    ctx.stroke(); }
-  else for (const [style,segs] of gl){ ctx.strokeStyle=style; ctx.beginPath();
+  const gl=gridLines();
+  for (const [style,segs] of gl){ const edge=style==="edge"; ctx.strokeStyle= edge ? "rgba(240,244,236,.7)" : style; ctx.lineWidth= edge ? 1.6 : 1; ctx.beginPath();
     for (let i=0;i<segs.length;i+=3){ const a=segs[i], b=segs[i+1]; if (segs[i+2]){ ctx.moveTo(a*s+.5,b*s); ctx.lineTo(a*s+.5,(b+1)*s); } else { ctx.moveTo(a*s,b*s+.5); ctx.lineTo((a+1)*s,b*s+.5); } }
     ctx.stroke(); }
-  ctx.strokeStyle= gl ? "rgba(255,255,255,.55)" : "rgba(232,238,226,.6)"; ctx.strokeRect(0,0,cols*s,rows*s);
+  ctx.lineWidth=1;
 
   const tpls=Object.entries(S.templates).map(([id,t])=>({id,...effT(id,t)}));
   if (S.draft) tpls.push({id:"__draft",...normT(S.draft)});
@@ -587,7 +592,7 @@ function paint(){
     const vis=visibleCells();
     if (!S.isGM || S.preview){
       ctx.fillStyle = S.isGM ? "rgba(6,9,10,.62)" : "rgb(9,12,13)"; ctx.beginPath();
-      for(let i=0;i<vis.length;i++) if(!vis[i]) ctx.rect((i%cols)*s-.25,((i/cols)|0)*s-.25,s+.5,s+.5);
+      const vd=hasVoid()?S.cfg.void:""; for(let i=0;i<vis.length;i++) if(!vis[i] && !(vd&&vd.charCodeAt(i)===49)) ctx.rect((i%cols)*s-.25,((i/cols)|0)*s-.25,s+.5,s+.5);
       ctx.fill();
       for (const t of toks) if (t.ownerId===S.me) drawToken(t,s,hitCells);
     } else {
@@ -596,7 +601,8 @@ function paint(){
       ctx.fill();
     }
   }
-  if (S.paint){ ctx.fillStyle = S.paint.mode==="walls" ? (S.paint.value?"rgba(20,20,20,.6)":"rgba(255,255,255,.25)") : (S.paint.value?"rgba(255,230,140,.35)":"rgba(0,0,0,.45)");
+  drawAreas(s, toks, hitCells);
+  if (S.paint){ ctx.fillStyle = S.paint.mode==="shape" ? (S.paint.value?"rgba(120,220,140,.5)":"rgba(230,80,70,.5)") : S.paint.mode==="area" ? (S.paint.value?hexA((S.cfg.areas?.[S.areaSel]?.color)||"#7fb8ff",.45):"rgba(0,0,0,.4)") : S.paint.mode==="walls" ? (S.paint.value?"rgba(20,20,20,.6)":"rgba(255,255,255,.25)") : (S.paint.value?"rgba(255,230,140,.35)":"rgba(0,0,0,.45)");
     for (const k of S.paint.cells){ const [x,y]=k.split(",").map(Number); ctx.fillRect(x*s,y*s,s,s); } }
   if (S.drag && S.drag.moved){
     const t=S.tokens[S.drag.id]; if (t){ const f=FOOT[t.size]||1;
@@ -733,6 +739,10 @@ cv.addEventListener("pointerdown", e => {
       S.draft={shape:tool,ox,oy,ang:0,len:S.cfg.meters,spread:S.coneAngle,width:1,color}; }
     gesture={type:"tpl",sx:wx,sy:wy,moved:false}; draw(); return;
   }
+  if (tool==="shape" && S.isGM){ const x=Math.floor(wx), y=Math.floor(wy); S.paint={mode:"shape",value:!inMap(x,y),cells:new Set([x+","+y])}; gesture={type:"paint"}; draw(); return; }
+  if (tool==="area" && S.isGM){ const a=S.cfg.areas&&S.cfg.areas[S.areaSel], x=Math.floor(wx), y=Math.floor(wy), {cols,rows}=S.cfg;
+    if (!a || x<0||y<0||x>=cols||y>=rows){ gesture=panG(e); return; }
+    S.paint={mode:"area",value:!bitGet(ensureBits(a.bits),y*cols+x),cells:new Set([x+","+y])}; gesture={type:"paint"}; draw(); return; }
   if ((tool==="walls"||tool==="reveal") && S.isGM){
     const x=Math.floor(wx), y=Math.floor(wy), {cols,rows}=S.cfg; if(x<0||y<0||x>=cols||y>=rows){ gesture=panG(e); return; }
     S.paint={mode:tool,value:!bitGet(ensureBits(S.cfg[tool]),y*cols+x),cells:new Set([x+","+y])}; gesture={type:"paint"}; draw(); return;
@@ -786,7 +796,8 @@ cv.addEventListener("pointermove", e => {
     else { const dx=wx-t.ox, dy=wy-t.oy; t.len=Math.max(1,Math.round(Math.hypot(dx,dy)))*S.cfg.meters; if (Math.hypot(dx,dy)>0.2) t.ang = t.shape==="circle" ? 0 : Math.round(Math.atan2(dy,dx)/(Math.PI/24))*(Math.PI/24); }
     draw(); return;
   }
-  if (gesture.type==="paint" && S.paint){ const x=Math.floor(wx), y=Math.floor(wy), {cols,rows}=S.cfg; if(x>=0&&y>=0&&x<cols&&y<rows){ S.paint.cells.add(x+","+y); draw(); } }
+  if (gesture.type==="paint" && S.paint){ const x=Math.floor(wx), y=Math.floor(wy), {cols,rows}=S.cfg;
+    if (S.paint.mode==="shape" ? (x>-MAX_GRID&&y>-MAX_GRID&&x<cols+MAX_GRID&&y<rows+MAX_GRID) : (x>=0&&y>=0&&x<cols&&y<rows)){ S.paint.cells.add(x+","+y); draw(); } }
 });
 function endPointer(e){
   pointers.delete(e.pointerId);
@@ -834,6 +845,9 @@ function endPointer(e){
     }
     renderPanel();
   }
+  if (gesture.type==="paint" && S.paint && S.paint.mode==="shape"){ const {value,cells}=S.paint; S.paint=null; applyShape(cells,value); }
+  if (gesture.type==="paint" && S.paint && S.paint.mode==="area"){ const {value,cells}=S.paint; S.paint=null; const a=S.cfg.areas&&S.cfg.areas[S.areaSel];
+    if (a){ const {cols}=S.cfg, arr=ensureBits(a.bits).split(""); for (const k of cells){ const [x,y]=k.split(",").map(Number); arr[y*cols+x]=value?"1":"0"; } patchCfg({areas:{...S.cfg.areas,[S.areaSel]:{...a,bits:arr.join("")}}}); renderPanel(); } }
   if (gesture.type==="paint" && S.paint){
     const {mode,value,cells}=S.paint; S.paint=null;
     const {cols}=S.cfg, arr=ensureBits(S.cfg[mode]).split("");
@@ -913,6 +927,8 @@ $("#zoom").addEventListener("click", e=>{ const b=e.target.closest("button"); if
 
 /* ============ 工具列 ============ */
 const ICONS = {
+  shape:'<path d="M4 4h7v5h9v11H9v-6H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 13h3M15.5 11.5v3" stroke="currentColor" stroke-width="1.6"/>',
+  area:'<rect x="4" y="4" width="16" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 2"/><path d="M9 12h6M12 9v6" stroke="currentColor" stroke-width="1.6"/>',
   pat:'<path d="M4 4h4v4H4zM16 4h4v4h-4zM10 10h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4z" fill="currentColor" opacity=".9"/>',
   select:'<path d="M5 3l14 8-6 1.5L10 19z" fill="currentColor"/>',
   ruler:'<path d="M3 17L17 3l4 4L7 21z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2" stroke="currentColor" stroke-width="1.6"/>',
@@ -936,7 +952,7 @@ function renderTools(){
   h+='<span class="divider"></span>';
   if (S.tool==="bg" && !(S.isGM && S.cfg.bgId)) S.tool="select";
   if (S.isGM && S.cfg.bgId) h+=`<button class="tool gmonly" data-tool="bg" aria-pressed="${S.tool==="bg"}">${svg("bg")}<span>底圖</span></button>`;
-  if (S.isGM) for (const t of [["walls","牆壁"],["reveal","揭露區"]]) h+=`<button class="tool gmonly" data-tool="${t[0]}" aria-pressed="${S.tool===t[0]}">${svg(t[0])}<span>${t[1]}</span></button>`;
+  if (S.isGM) for (const t of [["walls","牆壁"],["reveal","揭露區"],["shape","地形"],["area","區域"]]) h+=`<button class="tool gmonly" data-tool="${t[0]}" aria-pressed="${S.tool===t[0]}">${svg(t[0])}<span>${t[1]}</span></button>`;
   h+=`<button class="tool${S.isGM?" gmonly":""}" data-act="add">${svg("add")}<span>${S.isGM?"新增棋子":"新增召喚"}</span></button>`;
   h+='<span class="divider"></span>';
   h+=`<button class="tool" data-act="clearTpl">${svg("clear")}<span>${S.isGM?"清除範圍":"清我的範圍"}</span></button>`;
@@ -947,6 +963,8 @@ $("#tools").addEventListener("click", e => {
   const b=e.target.closest("button"); if(!b) return;
   if (b.dataset.tool){
     const t=b.dataset.tool;
+    if (t==="area" && !(S.cfg.areas&&S.cfg.areas[S.areaSel])){ openSheet("map"); toast("先在面板「房間區域」新增或選擇一個區域"); return; }
+    if (t==="shape") toast("從地圖內開始塗＝挖掉格子；從外面空白處開始塗＝加上格子");
     if (t==="pat" && (S.tool==="pat" || !S.patterns[S.patSel])){ S.tool="pat"; renderTools(); openPatPanel(); return; }
     if (t==="pat") toast(`「${S.patterns[S.patSel].name}」：點格子或自己的棋子放置，按住拖曳轉方向（8 方向）。再按一次「自訂」換範圍`);
     if (t==="cone" && S.tool==="cone"){ S.coneAngle = S.coneAngle===90?60:S.coneAngle===60?53:90; toast(`錐形角度 ${S.coneAngle}°`); }
@@ -985,6 +1003,7 @@ function addToken(){
 }
 
 /* ============ 面板 ============ */
+$("#floorTag").onclick=()=>{ if (S.isGM) openSheet("map"); else toast(`目前在「${S.cfg.floorName||"1F"}」，由 GM 切換樓層`); };
 $("#btnPanel").onclick=()=>{ $("#sheet").classList.contains("open") ? closeSheet() : openSheet(S.tab); };
 $("#btnPreview").onclick=()=>{ S.preview=!S.preview; $("#btnPreview").setAttribute("aria-pressed",S.preview); visCache.key=null; draw(); };
 function openSheet(tab){ S.tab=tab||S.tab; $("#sheet").classList.add("open"); renderPanel(); }
@@ -1034,6 +1053,7 @@ function panelToken(){
       h+=`<label class="switch"><input type="checkbox" id="tClaim" ${t.claimable?"checked":""}>開放玩家認領</label>
       <label class="switch"><input type="checkbox" id="tHidden" ${t.hidden?"checked":""}>對玩家隱藏</label>
       <div class="row"><label for="tOwner">控制者</label><select id="tOwner">${ownerOptions(t.ownerId)}</select></div>
+      ${Object.keys(S.floors||{}).length?`<div class="row"><label for="tFloor">樓層</label><select id="tFloor">${floorsAll().map(f=>`<option value="${f.id}" ${f.active?"selected":""}>${esc(f.name)}${f.active?"（目前）":""}</option>`).join("")}</select></div>`:""}
       <p class="hint">玩家換手機又忘了取回碼時，可以在這裡直接交給在線的玩家。</p>
       <div class="row"><button class="btn" data-act="dup">複製</button><button class="btn warn" data-act="delTok">刪除</button></div>`;
     } else if (t.ownerId===S.me){
@@ -1064,7 +1084,7 @@ function panelPlayers(){
   if (others.length){ h+=`<h3>其他人的棋子</h3><div class="list">`+others.map(([id,t])=>`<div class="item">${tokDot(t)}<span class="nm">${esc(t.name)}</span><span class="meta">${esc(nameOf(t.ownerId))}${S.peers[t.ownerId]?"・在線":""}</span>${!S.isGM&&t.pinHash?`<button class="btn" data-act="reclaim" data-id="${id}">取回</button>`:""}</div>`).join("")+`</div>`; }
   return h;
 }
-function entryTok(e){ return e.tid ? S.tokens[e.tid] : null; }
+function entryTok(e){ return e.tid ? (S.tokens[e.tid] || floorTok(e.tid)) : null; }
 function entryName(e){ const t=entryTok(e); return t ? t.name : (e.name || "已移除"); }
 function entryHidden(e){ const t=entryTok(e); return !!(t && t.hidden); }
 function isMineEntry(e){ const t=entryTok(e); return !!(t && t.ownerId===S.me); }
@@ -1095,7 +1115,8 @@ function panelInit(){
 }
 function panelMap(){
   const c=S.cfg;
-  return `<h3>場景插圖</h3><p class="hint">一張讓玩家感受氣氛的插圖，直接鋪成底圖；格子大小與牆壁不變，格子線會自動配合插圖換色。</p>${sceneCards()}
+  return `${panelLayers()}
+  <h3>場景插圖</h3><p class="hint">一張讓玩家感受氣氛的插圖，直接鋪成底圖；格子大小與牆壁不變，格子線會自動配合插圖換色。</p>${sceneCards()}
   <h3>地圖範本</h3><p class="hint">點一張套用：會改變格子大小、換上程式畫的底圖，地城類還會自動設好牆壁（開戰爭迷霧時擋視線）。</p>${presetCards("preset")}
   <h3>格子</h3>
   <div class="row"><label for="mCols">寬</label><input type="number" inputmode="numeric" class="num" id="mCols" min="4" max="${MAX_GRID}" value="${c.cols}"><label for="mRows" style="min-width:auto">高</label><input type="number" inputmode="numeric" class="num" id="mRows" min="4" max="${MAX_GRID}" value="${c.rows}"><span class="hint">格</span></div>
@@ -1144,6 +1165,7 @@ body.addEventListener("change", e => {
     if (id==="tVis") patchToken(S.sel,{vision:clamp(+e.target.value||0,0,400)});
     if (id==="tClaim") patchToken(S.sel,{claimable:e.target.checked});
     if (id==="tHidden") patchToken(S.sel,{hidden:e.target.checked});
+    if (id==="tFloor" && S.isGM && e.target.value!==(S.cfg.floorId||"f1")) moveTokenToFloor(S.sel, e.target.value);
     if (id==="tOwner" && S.isGM){ const v=e.target.value||null; patchToken(S.sel,{ownerId:v, ownerName: v?(S.peers[v]?.name||nameOf(v)):null, pinHash:null}); renderPanel(); }
   }
   if (id==="mFog") patchCfg({fog:e.target.checked});
@@ -1164,6 +1186,7 @@ body.addEventListener("click", async e => {
   const a=b.dataset.act, id=b.dataset.id;
   if (a.startsWith("mu")){ musicPanelClick(a,id); return; }
   if (a.startsWith("pat")){ patPanelClick(a,id); return; }
+  if (/^(floor|area|shape)/.test(a)){ layersClick(a,id); return; }
   if (a==="delTpl"){ delTemplate(S.selTpl); S.selTpl=null; renderPanel(); }
   if (a==="delTok"){ const tid=S.sel; if(!canDeleteToken(S.tokens[tid])) return; deleteTokenFull(tid); renderPanel(); }
   if (a==="unbindTpl") unbindTpl(S.selTpl);
@@ -1208,12 +1231,7 @@ body.addEventListener("click", async e => {
     S.tokens={}; S.templates={}; S.sel=null; w(ref(`${R}/tokens`).remove()); w(ref(`${R}/templates`).remove()); putCombat({round:1,turn:0,order:[]}); renderPanel(); draw(); }
 });
 function focusToken(id){ const t=S.tokens[id]; if(!t) return; const r=cv.getBoundingClientRect(), f=FOOT[t.size]||1; S.view.x=r.width/2-(t.x+f/2)*S.view.s; S.view.y=r.height/2-(t.y+f/2)*S.view.s; S.sel=id; S.tool="select"; renderTools(); renderPanel(); draw(); }
-function resizeGrid(cols,rows){
-  const o=S.cfg, rebit=str=>{ const src=ensureBits(str); let out=""; for(let y=0;y<rows;y++) for(let x=0;x<cols;x++) out+=(x<o.cols&&y<o.rows)?src[y*o.cols+x]:"0"; return out; };
-  const walls=rebit(o.walls), reveal=rebit(o.reveal);
-  patchCfg({cols,rows,walls,reveal});
-  for (const [id,t] of Object.entries(S.tokens)){ const f=FOOT[t.size]||1; if (t.x+f>cols||t.y+f>rows) patchToken(id,{x:clamp(t.x,0,cols-f),y:clamp(t.y,0,rows-f)}); }
-}
+function resizeGrid(cols,rows){ rebaseMap(0,0,cols,rows,"0"); }
 function applyGrid(){
   const cols=clamp(Math.round(+$("#mCols").value||12),4,MAX_GRID), rows=clamp(Math.round(+$("#mRows").value||40),4,MAX_GRID), meters=clamp(+$("#mMeters").value||2,0.5,100);
   if (meters!==S.cfg.meters) patchCfg({meters});
@@ -1752,7 +1770,7 @@ function renderPreset(p, seed, maxSide){
 const presetThumbs={};
 function presetThumb(p){ if (!p.draw) return ""; return presetThumbs[p.id] || (presetThumbs[p.id]=renderPreset(p, 7, 140).data); }
 function presetCfg(p, seed){ // 產生要寫進房間的資料
-  const r=renderPreset(p, seed, 1600); const cfg={cols:p.cols, rows:p.rows, bgId:null, bgX:0, bgY:0, bgW:p.cols, walls:r.walls?r.walls.join(""):"", reveal:""};
+  const r=renderPreset(p, seed, 1600); const cfg={cols:p.cols, rows:p.rows, bgId:null, bgX:0, bgY:0, bgW:p.cols, walls:r.walls?r.walls.join(""):"", reveal:"", void:"", areas:null};
   let image=null; if (r.data){ const id=uid(); cfg.bgId=id; image={id, data:r.data}; }
   return {cfg, image};
 }
@@ -1949,6 +1967,138 @@ async function applyScene(id){
 }
 function sceneCards(){
   return `<div class="preset-grid">${SCENES.map(sc=>`<button type="button" class="preset" data-scene="${sc.id}"><img src="${sceneThumb(sc)}" alt=""><b>${esc(sc.name)}</b><span>${esc(sc.desc)}</span></button>`).join("")}</div>`;
+}
+
+/* ============ 地圖形狀 / 房間區域 / 樓層 ============ */
+const hasVoid = () => !!S.cfg.void && S.cfg.void.length===S.cfg.cols*S.cfg.rows && S.cfg.void.indexOf("1")>=0;
+const isVoid = (x,y) => hasVoid() && S.cfg.void.charCodeAt(y*S.cfg.cols+x)===49;
+const inMap = (x,y) => x>=0 && y>=0 && x<S.cfg.cols && y<S.cfg.rows && !isVoid(x,y);
+function mapPath(s){ const {cols,rows}=S.cfg; ctx.beginPath();
+  if (!hasVoid()){ ctx.rect(0,0,cols*s,rows*s); return; }
+  for (let y=0;y<rows;y++){ let x=0; while (x<cols){ while (x<cols && isVoid(x,y)) x++; const x0=x; while (x<cols && !isVoid(x,y)) x++; if (x>x0) ctx.rect(x0*s,y*s,(x-x0)*s+.5,s+.5); } } }
+function rebits(str, oc, or, x0, y0, nc, nr, fill="0"){ const src=str&&str.length===oc*or?str:null; const out=new Array(nc*nr);
+  for (let y=0;y<nr;y++) for (let x=0;x<nc;x++){ const ox=x+x0, oy=y+y0; out[y*nc+x]=(src && ox>=0&&oy>=0&&ox<oc&&oy<or) ? src[oy*oc+ox] : fill; } return out.join(""); }
+/* 把地圖的左上角移到舊座標 (x0,y0)，大小改成 nc×nr；棋子、範圍、底圖、牆壁、區域都跟著平移 */
+function rebaseMap(x0, y0, nc, nr, voidFill="0"){
+  const o=S.cfg, oc=o.cols, or=o.rows, dx=-x0, dy=-y0;
+  const patch={cols:nc, rows:nr, walls:rebits(o.walls,oc,or,x0,y0,nc,nr), reveal:rebits(o.reveal,oc,or,x0,y0,nc,nr)};
+  if (hasVoid() || voidFill==="1"){ const v=rebits(o.void&&o.void.length===oc*or?o.void:"0".repeat(oc*or),oc,or,x0,y0,nc,nr,voidFill); patch.void = v.indexOf("1")>=0 ? v : ""; }
+  if (o.areas){ patch.areas={}; for (const [k,a] of Object.entries(o.areas)) patch.areas[k]={...a, bits:rebits(a.bits,oc,or,x0,y0,nc,nr)}; }
+  if (o.bgId && bgImg){ const b=bgFields(); Object.assign(patch,{bgX:r2(b.bgX+dx), bgY:r2(b.bgY+dy), bgW:r2(b.bgW)}); }
+  else if (o.bgId && (dx||dy)) Object.assign(patch,{bgX:(+o.bgX||0)+dx, bgY:(+o.bgY||0)+dy});
+  patchCfg(patch);
+  if (dx||dy){ for (const [id,t] of Object.entries(S.templates)){ let g=shiftT(normT(t),dx,dy); if (g.bind) g={...g,bind:{...g.bind,ax:g.bind.ax+dx,ay:g.bind.ay+dy}}; putTemplate(id,g); }
+    S.view.x-=dx*S.view.s; S.view.y-=dy*S.view.s; }
+  for (const [id,t] of Object.entries(S.tokens)){ const f=FOOT[t.size]||1, x=clamp(t.x+dx,0,nc-f), y=clamp(t.y+dy,0,nr-f); if (x!==t.x||y!==t.y) patchToken(id,{x,y}); }
+  gridCache.key=""; visCache.key=null;
+}
+function applyShape(cells, add){
+  const {cols,rows}=S.cfg, pts=[...cells].map(k=>k.split(",").map(Number));
+  if (add){
+    let x0=0,y0=0,x1=cols-1,y1=rows-1; for (const [x,y] of pts){ x0=Math.min(x0,x); y0=Math.min(y0,y); x1=Math.max(x1,x); y1=Math.max(y1,y); }
+    const nc=x1-x0+1, nr=y1-y0+1; if (nc>MAX_GRID||nr>MAX_GRID){ toast(`地圖最大 ${MAX_GRID}×${MAX_GRID} 格`); return; }
+    if (x0<0||y0<0||nc>cols||nr>rows) rebaseMap(x0,y0,nc,nr,"1");
+    const C=S.cfg.cols, arr=(S.cfg.void&&S.cfg.void.length===C*S.cfg.rows?S.cfg.void:"0".repeat(C*S.cfg.rows)).split("");
+    for (const [x,y] of pts) arr[(y-y0)*C+(x-x0)]="0";
+    const v=arr.join(""); patchCfg({void: v.indexOf("1")>=0 ? v : ""});
+  } else {
+    const arr=(hasVoid()?S.cfg.void:"0".repeat(cols*rows)).split("");
+    for (const [x,y] of pts) if (x>=0&&y>=0&&x<cols&&y<rows) arr[y*cols+x]="1";
+    if (arr.indexOf("0")<0){ toast("地圖至少要留一格"); return; }
+    patchCfg({void: arr.join("")});
+    let bx0=cols,by0=rows,bx1=-1,by1=-1; for (let i=0;i<arr.length;i++) if (arr[i]==="0"){ const x=i%cols, y=(i/cols)|0; bx0=Math.min(bx0,x); by0=Math.min(by0,y); bx1=Math.max(bx1,x); by1=Math.max(by1,y); }
+    if (bx0>0||by0>0||bx1<cols-1||by1<rows-1) rebaseMap(bx0,by0,bx1-bx0+1,by1-by0+1);
+  }
+  gridCache.key=""; visCache.key=null; renderPanel(); draw();
+}
+/* 房間區域 */
+const AREA_COLORS=["#7fb8ff","#ffb36a","#9be38a","#e58ae0","#ffe06a","#6ae0d8"];
+const hidCache={key:null,set:null};
+function hiddenCells(){ const a=S.cfg.areas||{}, n=S.cfg.cols*S.cfg.rows;
+  const key=n+"|"+Object.entries(a).filter(([,v])=>v&&v.hidden).map(([k,v])=>k+":"+hash(v.bits)).join(",");
+  if (hidCache.key===key) return hidCache.set;
+  const set=new Uint8Array(n); for (const v of Object.values(a)) if (v && v.hidden && v.bits && v.bits.length===n) for (let i=0;i<n;i++) if (v.bits.charCodeAt(i)===49) set[i]=1;
+  hidCache.key=key; hidCache.set=set; return set; }
+const areaCover = () => !S.isGM || S.preview;
+function tokInHidden(t){ const f=FOOT[t.size]||1, x=Math.floor(t.x+f/2-.01), y=Math.floor(t.y+f/2-.01), {cols,rows}=S.cfg; if (x<0||y<0||x>=cols||y>=rows) return false; return !!hiddenCells()[y*cols+x]; }
+function drawAreas(s, toks, hitCells){
+  const areas=S.cfg.areas; if (!areas) return; const {cols,rows}=S.cfg, n=cols*rows;
+  if (areaCover()){ const hid=hiddenCells(); let any=false; ctx.fillStyle="rgb(9,12,13)"; ctx.beginPath(); for (let i=0;i<n;i++) if (hid[i]){ any=true; ctx.rect((i%cols)*s-.25,((i/cols)|0)*s-.25,s+.5,s+.5); } ctx.fill();
+    if (any) for (const t of toks) if (t.ownerId===S.me) drawToken(t,s,hitCells); }
+  if (!S.isGM) return;
+  for (const [aid,a] of Object.entries(areas)){ if (!a) continue; const bits=a.bits&&a.bits.length===n?a.bits:""; if (!bits) continue; const col=a.color||"#7fb8ff", on=i=>bits.charCodeAt(i)===49;
+    if (a.hidden && !S.preview){ ctx.fillStyle="rgba(0,0,0,.38)"; ctx.beginPath(); for (let i=0;i<n;i++) if (on(i)) ctx.rect((i%cols)*s,((i/cols)|0)*s,s,s); ctx.fill(); }
+    ctx.strokeStyle=col; ctx.lineWidth=S.areaSel===aid&&S.tool==="area"?3:2; ctx.setLineDash(a.hidden?[6,4]:[]); ctx.beginPath(); let first=-1;
+    for (let i=0;i<n;i++) if (on(i)){ if (first<0) first=i; const x=i%cols, y=(i/cols)|0, inA=(xx,yy)=>xx>=0&&yy>=0&&xx<cols&&yy<rows&&on(yy*cols+xx);
+      if (!inA(x,y-1)){ ctx.moveTo(x*s,y*s+1); ctx.lineTo(x*s+s,y*s+1); } if (!inA(x,y+1)){ ctx.moveTo(x*s,y*s+s-1); ctx.lineTo(x*s+s,y*s+s-1); }
+      if (!inA(x-1,y)){ ctx.moveTo(x*s+1,y*s); ctx.lineTo(x*s+1,y*s+s); } if (!inA(x+1,y)){ ctx.moveTo(x*s+s-1,y*s); ctx.lineTo(x*s+s-1,y*s+s); } }
+    ctx.stroke(); ctx.setLineDash([]);
+    if (first>=0){ const x=first%cols, y=(first/cols)|0; ctx.font='600 11px "Noto Sans TC",sans-serif'; const label=(a.hidden?"🔒 ":"")+(a.name||"區域"), w=ctx.measureText(label).width+10;
+      ctx.fillStyle=hexA(col,.9); roundRect(x*s+3,y*s+3,w,16,4); ctx.fill(); ctx.fillStyle="#111"; ctx.textAlign="left"; ctx.textBaseline="middle"; ctx.fillText(label,x*s+8,y*s+11.5); }
+  }
+}
+/* 樓層：目前的樓層就是 cfg/tokens/templates，其他樓層存在 floors/{id} */
+function floorsAll(){
+  const cur={id:S.cfg.floorId||"f1", name:S.cfg.floorName||"1F", order:+S.cfg.floorOrder||0, active:true};
+  return [cur, ...Object.entries(S.floors||{}).filter(([,f])=>f).map(([id,f])=>({id, name:f.name||"?", order:+f.order||0, n:Object.keys(f.tokens||{}).length}))].sort((a,b)=>a.order-b.order);
+}
+function floorTok(tid){ for (const f of Object.values(S.floors||{})) if (f && f.tokens && f.tokens[tid]) return f.tokens[tid]; return null; }
+function renderFloorTag(){ const el=$("#floorTag"); if (!el) return; const n=Object.keys(S.floors||{}).length; el.hidden=!n; el.textContent="🏢 "+(S.cfg.floorName||"1F"); }
+async function switchFloor(fid){
+  const tgt=S.floors[fid]; if (!S.isGM || !tgt) return;
+  const curId=S.cfg.floorId||"f1"; const {floorId,floorName,floorOrder,title,...rest}=S.cfg;
+  const snap=JSON.parse(JSON.stringify({name:S.cfg.floorName||"1F", order:+S.cfg.floorOrder||0, cfg:rest, tokens:S.tokens, templates:S.templates}));
+  const ncfg={...DEFAULT_CFG, ...(tgt.cfg||{}), title:S.cfg.title, floorId:fid, floorName:tgt.name||"?", floorOrder:+tgt.order||0};
+  S.cfg=ncfg; S.tokens=tgt.tokens||{}; S.templates=tgt.templates||{}; S.sel=null; S.selTpl=null; S.movePrev=null;
+  const fl={...S.floors}; delete fl[fid]; fl[curId]=snap; S.floors=fl;
+  await w(ref(R).update(JSON.parse(JSON.stringify({[`floors/${curId}`]:snap, [`floors/${fid}`]:null, cfg:ncfg, tokens:S.tokens, templates:S.templates}))));
+  gridCache.key=""; visCache.key=null; renderFloorTag(); fitView(); renderTools(); renderPanel(); draw(); toast(`已切換到「${ncfg.floorName}」，所有人都跟著移動`);
+}
+async function addFloor(){
+  const all=floorsAll(); const r=await dialog({title:"新增樓層", text:"新樓層會用目前的格子大小，之後可以另外套用底圖或範本。", fields:[{id:"n",label:"名稱",value:`${all.length+1}F`,max:16}]}); if (!r) return;
+  if (!Object.keys(S.floors||{}).length && !S.cfg.floorName) patchCfg({floorId:S.cfg.floorId||"f1", floorName:"1F", floorOrder:0});
+  const nid="f"+uid(), f={name:(r.n||`${all.length+1}F`).slice(0,16), order:Math.max(...all.map(x=>x.order))+1, cfg:{...DEFAULT_CFG, cols:S.cfg.cols, rows:S.cfg.rows, meters:S.cfg.meters}};
+  S.floors={...S.floors,[nid]:f}; await w(ref(`${R}/floors/${nid}`).set(f)); await switchFloor(nid);
+}
+function moveTokenToFloor(tid, fid){
+  const t=S.tokens[tid], f=S.floors[fid]; if (!S.isGM || !t || !f) return;
+  const fc={...DEFAULT_CFG,...(f.cfg||{})}, sz=FOOT[t.size]||1, nt={...t, x:clamp(t.x,0,fc.cols-sz), y:clamp(t.y,0,fc.rows-sz)};
+  for (const [id,tp] of Object.entries(S.templates)) if (tp.bind && tp.bind.tid===tid) delTemplate(id);
+  S.floors={...S.floors,[fid]:{...f, tokens:{...(f.tokens||{}),[tid]:nt}}}; w(ref(`${R}/floors/${fid}/tokens/${tid}`).set(nt)); delToken(tid);
+  renderPanel(); toast(`「${t.name}」移到了「${f.name}」`);
+}
+function panelLayers(){
+  const fl=floorsAll(), multi=fl.length>1, areas=Object.entries(S.cfg.areas||{}).filter(([,a])=>a);
+  let h=`<h3>樓層</h3><p class="hint">同一個房間可以有多張地圖（1F、2F、地下室…）。切換樓層時所有玩家會一起移動；棋子可在「棋子」面板搬到別層。</p>`;
+  h+=`<div class="list">`+fl.map(f=>`<div class="item" style="${f.active?"border:2px solid var(--brass)":""}"><span class="nm">${esc(f.name)}${f.active?' <span class="meta">（目前）</span>':""}${f.n?`<br><span class="meta">${f.n} 個棋子</span>`:""}</span>${f.active?"":`<button class="btn primary" data-act="floorGo" data-id="${f.id}">切換</button>`}<button class="btn" data-act="floorRen" data-id="${f.id}">改名</button>${f.active||!multi?"":`<button class="btn warn" data-act="floorDel" data-id="${f.id}" aria-label="刪除">刪</button>`}</div>`).join("")+`</div>`;
+  h+=`<div class="row"><button class="btn" data-act="floorNew">＋ 新增樓層</button></div>`;
+  h+=`<h3>房間區域</h3><p class="hint">在地圖上圈出房間（例如寶庫、密室）。按「隱藏」後玩家完全看不到裡面，包括棋子；到時再「揭露」。</p>`;
+  if (areas.length) h+=`<div class="list">`+areas.map(([id,a])=>{ const cnt=(a.bits||"").split("1").length-1, ed=S.areaSel===id&&S.tool==="area";
+    return `<div class="item" style="${ed?"border:2px solid var(--brass)":""}"><span class="dot" style="background:${esc(a.color||"#7fb8ff")}"></span><span class="nm">${esc(a.name||"區域")}<br><span class="meta">${cnt} 格 · ${a.hidden?"🔒 隱藏中":"顯示中"}</span></span><button class="btn ${a.hidden?"gm":""}" data-act="areaToggle" data-id="${id}">${a.hidden?"揭露":"隱藏"}</button><button class="btn" data-act="areaEdit" data-id="${id}">${ed?"畫格子中":"畫格子"}</button><button class="btn" data-act="areaRen" data-id="${id}">改名</button><button class="btn warn" data-act="areaDel" data-id="${id}" aria-label="刪除">刪</button></div>`; }).join("")+`</div>`;
+  h+=`<div class="row"><button class="btn" data-act="areaNew">＋ 新增區域</button></div>`;
+  h+=`<h3>地圖形狀</h3><p class="hint">用「地形」工具在地圖上塗：<b>從地圖內開始塗</b>會挖掉格子，<b>從地圖外的空白處開始塗</b>會加上格子，超出範圍時地圖會自動擴大。</p>
+  <div class="row"><button class="btn gm" data-act="shapeTool">使用地形工具</button>${hasVoid()?`<button class="btn" data-act="shapeReset">恢復成完整矩形</button>`:""}</div>`;
+  return h;
+}
+async function layersClick(a, id){
+  if (!S.isGM) return;
+  if (a==="floorGo") await switchFloor(id);
+  if (a==="floorNew") await addFloor();
+  if (a==="floorRen"){ const cur=floorsAll().find(f=>f.id===id); if (!cur) return; const r=await dialog({title:"樓層改名", fields:[{id:"n",label:"名稱",value:cur.name,max:16}]}); if (!r||!r.n) return;
+    if (cur.active){ if (!S.cfg.floorId) patchCfg({floorId:"f1"}); patchCfg({floorName:r.n}); } else { S.floors[id]={...S.floors[id],name:r.n}; w(ref(`${R}/floors/${id}/name`).set(r.n)); } renderFloorTag(); }
+  if (a==="floorDel"){ const f=S.floors[id]; if (!f) return; if (!await confirmBox(`刪除「${f.name}」`, "這層的地圖、棋子和範圍會永久刪除。", "刪除")) return;
+    for (const tid of Object.keys(f.tokens||{})) removeFromCombat(tid); const fl={...S.floors}; delete fl[id]; S.floors=fl; w(ref(`${R}/floors/${id}`).remove()); renderFloorTag(); }
+  if (a==="areaNew"){ const n=Object.keys(S.cfg.areas||{}).length; const r=await dialog({title:"新增區域", text:"建立後直接在地圖上塗出這個房間的範圍。", fields:[{id:"n",label:"名稱",value:`房間 ${n+1}`,max:20}]}); if (!r) return;
+    const aid="a"+uid(); patchCfg({areas:{...(S.cfg.areas||{}), [aid]:{name:(r.n||`房間 ${n+1}`).slice(0,20), color:AREA_COLORS[n%AREA_COLORS.length], hidden:false, bits:"0".repeat(S.cfg.cols*S.cfg.rows)}}});
+    S.areaSel=aid; S.tool="area"; renderTools(); if (window.innerWidth<700) closeSheet(); toast("在地圖上塗出這個房間的格子，再塗一次可以取消"); }
+  const ar=S.cfg.areas&&S.cfg.areas[id];
+  if (a==="areaToggle" && ar){ patchCfg({areas:{...S.cfg.areas,[id]:{...ar,hidden:!ar.hidden}}}); toast(ar.hidden?`已向玩家揭露「${ar.name}」`:`已對玩家隱藏「${ar.name}」`); }
+  if (a==="areaEdit" && ar){ if (S.tool==="area" && S.areaSel===id){ S.tool="select"; } else { S.areaSel=id; S.tool="area"; if (window.innerWidth<700) closeSheet(); toast(`塗格子加入「${ar.name}」，再塗一次可以取消`); } renderTools(); }
+  if (a==="areaRen" && ar){ const r=await dialog({title:"區域改名", fields:[{id:"n",label:"名稱",value:ar.name||"",max:20}]}); if (!r||!r.n) return; patchCfg({areas:{...S.cfg.areas,[id]:{...ar,name:r.n}}}); }
+  if (a==="areaDel" && ar){ if (!await confirmBox(`刪除「${ar.name}」`, "只會刪除區域的範圍和隱藏設定，地圖本身不受影響。", "刪除")) return; const n={...S.cfg.areas}; delete n[id]; patchCfg({areas:Object.keys(n).length?n:null}); if (S.areaSel===id){ S.areaSel=""; if (S.tool==="area") S.tool="select"; renderTools(); } }
+  if (a==="shapeTool"){ S.tool="shape"; renderTools(); if (window.innerWidth<700) closeSheet(); toast("從地圖內開始塗＝挖掉格子；從外面空白處開始塗＝加上格子"); }
+  if (a==="shapeReset"){ patchCfg({void:""}); gridCache.key=""; visCache.key=null; }
+  renderPanel(); draw();
 }
 
 /* ============ 自訂範圍 ============ */
@@ -2380,7 +2530,8 @@ async function saveSnapshot(){
 async function loadSnapshot(id){
   const s=S.saves.find(x=>x.id===id); if(!s) return;
   if (!await confirmBox(`載入「${s.name}」`, "目前的棋子、範圍與回合會被取代。需要的話先另存一份。", "載入")) return;
-  S.tokens=s.tokens||{}; S.templates=s.templates||{}; S.cfg={...DEFAULT_CFG,...s.cfg};
+  const keep={title:S.cfg.title, floorId:S.cfg.floorId||null, floorName:S.cfg.floorName||null, floorOrder:S.cfg.floorOrder??null};
+  S.tokens=s.tokens||{}; S.templates=s.templates||{}; S.cfg=JSON.parse(JSON.stringify({...DEFAULT_CFG,...s.cfg,...keep}));
   w(ref(`${R}/tokens`).set(s.tokens||null)); w(ref(`${R}/templates`).set(s.templates||null)); w(ref(`${R}/cfg`).set(S.cfg));
   putCombat(s.combat ? {...s.combat, order:normOrder(s.combat.order)} : {round:1,turn:0,order:[]});
   visCache.key=null; applyTitle(); fitView(); renderPanel(); toast(`已載入「${s.name}」`);
@@ -2521,7 +2672,9 @@ function subscribeRoom(){
   status("載入中…");
   let f1=true, f2=true, f3=true, f4=true, bgUnsub=null, bgFor=null;
   listen(`${R}/cfg`, v=>{
-    const c=v||{}; S.cfg={...DEFAULT_CFG,...c}; S.cfg.walls=c.walls||""; S.cfg.reveal=c.reveal||"";
+    const c=v||{}, prevFloor=S.cfg.floorId; S.cfg={...DEFAULT_CFG,...c}; S.cfg.walls=c.walls||""; S.cfg.reveal=c.reveal||"";
+    gridCache.key=""; renderFloorTag();
+    if (!f1 && prevFloor!==S.cfg.floorId && S.cfg.floorId){ S.sel=null; S.selTpl=null; setTimeout(fitView,0); if (!S.isGM) toast(`GM 帶大家移動到「${S.cfg.floorName||""}」`); }
     if (S.cfg.bgId!==bgFor){ bgFor=S.cfg.bgId; if(bgUnsub) bgUnsub(); bgUnsub=null; if (bgFor) bgUnsub=listen(`${R}/images/${bgFor}`, im=>setBgData(im&&im.data)); else setBgData(null); }
     visCache.key=null; applyTitle(); setRole();
     if (f1){ f1=false; fitView(); done(); }
@@ -2534,6 +2687,7 @@ function subscribeRoom(){
     visCache.key=null; renderPanel(); updateHud(); draw();
     if (f2){ f2=false; done(); }
   });
+  listen(`${R}/floors`, v=>{ S.floors=v||{}; renderFloorTag(); if (S.isGM) pruneCombat(); if (S.tab==="map"||S.tab==="token") renderPanel(); });
   listen(`${R}/patterns`, v=>{ S.patterns=v||{}; renderTools(); if (S.tab==="pats") renderPanel(); });
   listen(`${R}/templates`, v=>{ S.templates=v||{}; if (S.selTpl && !S.templates[S.selTpl]) S.selTpl=null; draw(); if (f3){ f3=false; done(); } });
   listen(`${R}/combat`, v=>{
