@@ -115,6 +115,10 @@ input[type=color]{width:40px;height:34px;padding:0;border:1px solid var(--line);
 .overlay.open{display:flex}
 #home{background:var(--table)}
 #modal{z-index:35}
+.crop-card{max-width:560px}
+.crop-wrap{display:flex;justify-content:center;background:#111;border-radius:8px;padding:6px;margin:8px 0;touch-action:none}
+#cropCv{display:block;touch-action:none;cursor:move}
+.tokthumb{width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--line);flex:0 0 auto}
 .gate-card{background:var(--panel);color:var(--ink);border-radius:14px;padding:20px;max-width:400px;width:100%;box-shadow:var(--shadow);max-height:100%;overflow:auto}
 .gate-card h2{margin:0 0 4px;font-size:20px}
 .gate-card h3{font-size:15px;margin:18px 0 4px}
@@ -565,6 +569,9 @@ function drawToken(t,s,hitCells){
   ctx.shadowColor="rgba(0,0,0,.45)"; ctx.shadowBlur=6; ctx.shadowOffsetY=2;
   ctx.fillStyle=t.color||"#3f8f96"; ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.fill();
   ctx.shadowColor="transparent";
+  const tim=t.img && tokImg(t.img);
+  if (tim){ ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.clip(); ctx.drawImage(tim,cx-r,cy-r,r*2,r*2); ctx.restore();
+    const cw=Math.max(2,s*0.05); ctx.strokeStyle=t.color||"#3f8f96"; ctx.lineWidth=cw; ctx.beginPath(); ctx.arc(cx,cy,r-cw/2,0,7); ctx.stroke(); ctx.beginPath(); ctx.arc(cx,cy,r,0,7); }
   ctx.lineWidth=Math.max(2,s*0.06); ctx.strokeStyle= t.ownerId===S.me ? "#ffe08a" : "rgba(248,246,236,.9)"; ctx.stroke();
   if (hit){ ctx.strokeStyle="#ff5a4a"; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(cx,cy,r+4,0,7); ctx.stroke(); }
   const ce=currentEntry(); if (ce && ce.tid===t.id){ ctx.strokeStyle="#f2c14e"; ctx.lineWidth=4; ctx.beginPath(); ctx.arc(cx,cy,r+(hit?9:5),0,7); ctx.stroke(); }
@@ -572,10 +579,12 @@ function drawToken(t,s,hitCells){
   const name=t.name||"?";
   const inner = r*2 > 56 ? name : [...name][0];
   ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.textBaseline="middle";
+  if (!tim){
   const fs=Math.max(9, Math.min(r*0.8, 22)); ctx.font=`700 ${fs}px "Noto Sans TC",sans-serif`;
   let txt=inner; while (ctx.measureText(txt).width > r*1.7 && txt.length>1) txt=txt.slice(0,-1);
   ctx.fillText(txt,cx,cy+1);
-  if (r*2 <= 56 && s>=26){ ctx.font='500 11px "Noto Sans TC",sans-serif'; const wd=ctx.measureText(name).width+8; ctx.fillStyle="rgba(12,18,17,.75)"; roundRect(cx-wd/2,cy+r+2,wd,16,4); ctx.fill(); ctx.fillStyle="#f3f1e6"; ctx.fillText(name,cx,cy+r+10.5); }
+  }
+  if ((tim || r*2 <= 56) && s>=26){ ctx.font='500 11px "Noto Sans TC",sans-serif'; const wd=ctx.measureText(name).width+8; ctx.fillStyle="rgba(12,18,17,.75)"; roundRect(cx-wd/2,cy+r+2,wd,16,4); ctx.fill(); ctx.fillStyle="#f3f1e6"; ctx.fillText(name,cx,cy+r+10.5); }
   if (t.hidden){ ctx.font='600 10px "Noto Sans TC",sans-serif'; ctx.fillStyle="#ffd36a"; ctx.fillText("隱藏",cx,cy-r-6); }
   ctx.globalAlpha=1;
 }
@@ -899,11 +908,12 @@ function ownerOptions(cur){
   for (const id of ids) h+=`<option value="${esc(id)}" ${id===cur?"selected":""}>${esc(id===S.me?"你自己":nameOf(id))}${on.has(id)?"（在線）":""}</option>`;
   return h;
 }
+function tokDot(t){ const ti=t.img&&tokImg(t.img); return ti?`<img class="dot" src="${esc(ti.src)}" alt="" style="object-fit:cover;width:24px;height:24px;flex-basis:24px;border:2px solid ${esc(t.color)}">`:`<span class="dot" style="background:${esc(t.color)}"></span>`; }
 function panelToken(){
   let h="";
   if (S.selTpl && S.templates[S.selTpl]){
     const t=S.templates[S.selTpl], bn=t.bind&&S.tokens[t.bind.tid], ed=canDeleteTpl(t);
-    h+=`<h3>選取的範圍</h3><div class="item"><span class="dot" style="background:${esc(t.color)}"></span><span class="nm">${esc(tplLabel(t))}${bn?`<br><span class="meta">綁定在「${esc(bn.name)}」</span>`:""}</span>${ed&&bn?`<button class="btn" data-act="unbindTpl">解除綁定</button>`:""}${ed?`<button class="btn warn" data-act="delTpl">刪除</button>`:""}</div>
+    h+=`<h3>選取的範圍</h3><div class="item">${tokDot(t)}<span class="nm">${esc(tplLabel(t))}${bn?`<br><span class="meta">綁定在「${esc(bn.name)}」</span>`:""}</span>${ed&&bn?`<button class="btn" data-act="unbindTpl">解除綁定</button>`:""}${ed?`<button class="btn warn" data-act="delTpl">刪除</button>`:""}</div>
     ${ed?`<p class="hint">拖曳範圍可移動。拖白色圓點可旋轉（圓形是調整半徑，錐形和直線也能拉長縮短）。把範圍拖到棋子上停 3 秒就會綁定，之後跟著棋子走。</p>`:""}`;
   }
   const t=S.sel && S.tokens[S.sel];
@@ -914,6 +924,9 @@ function panelToken(){
     <div class="row"><label for="tSize">體型</label><select id="tSize" ${pdis}>${SIZES.map(s=>`<option value="${s.k}" ${t.size===s.k?"selected":""}>${s.n}（${s.f<1?"共用格":s.f+"×"+s.f+"格"}）</option>`).join("")}</select></div>
     <div class="row"><label for="tColor">顏色</label><input type="color" id="tColor" value="${esc(t.color)}" ${dis}>
       <label for="tVis" style="min-width:auto;margin-left:8px">視野</label><input type="number" inputmode="decimal" id="tVis" class="num" min="0" max="400" step="${S.cfg.meters}" value="${+t.vision||0}" ${pdis}><span class="hint">米</span></div>`;
+    if (canControl(t)){ const ti=t.img&&tokImg(t.img);
+      h+=`<div class="row"><label>圖片</label>${ti?`<img class="tokthumb" src="${esc(ti.src)}" alt="">`:""}<button class="btn" data-act="tImgPick">${t.img?"換圖片":"選擇圖片"}</button>${t.img?`<button class="btn" data-act="tImgRm">移除</button>`:""}<input type="file" id="tImg" accept="image/*" hidden></div>
+      <p class="hint">選圖後可以裁切，會自動壓縮成小圖（約 20–60 KB）。</p>`; }
     if (S.isGM){
       h+=`<label class="switch"><input type="checkbox" id="tClaim" ${t.claimable?"checked":""}>開放玩家認領</label>
       <label class="switch"><input type="checkbox" id="tHidden" ${t.hidden?"checked":""}>對玩家隱藏</label>
@@ -930,7 +943,7 @@ function panelToken(){
     }
   } else if (!S.selTpl) h+=`<p class="empty">點地圖上的棋子查看或編輯。${S.isGM?"用下方「新增棋子」放一個到地圖中央。":""}</p>`;
   const list=Object.entries(S.tokens).filter(([,t])=>S.isGM||tokenSeen(t));
-  if (list.length) h+=`<h3>地圖上的棋子</h3><div class="list">`+list.map(([id,t])=>`<div class="item"><span class="dot" style="background:${esc(t.color)}"></span><span class="nm">${esc(t.name)}${t.hidden?' <span class="meta">（隱藏）</span>':""}</span><span class="meta">${t.ownerId?esc(nameOf(t.ownerId)):(t.claimable?"可認領":"")}</span><button class="btn" data-act="focus" data-id="${id}">定位</button></div>`).join("")+`</div>`;
+  if (list.length) h+=`<h3>地圖上的棋子</h3><div class="list">`+list.map(([id,t])=>`<div class="item">${tokDot(t)}<span class="nm">${esc(t.name)}${t.hidden?' <span class="meta">（隱藏）</span>':""}</span><span class="meta">${t.ownerId?esc(nameOf(t.ownerId)):(t.claimable?"可認領":"")}</span><button class="btn" data-act="focus" data-id="${id}">定位</button></div>`).join("")+`</div>`;
   return h;
 }
 function panelPlayers(){
@@ -941,11 +954,11 @@ function panelPlayers(){
   if (S.isGM) h+=`<p class="hint">你是 GM，可以移動所有棋子。在棋子面板勾選「開放玩家認領」後，玩家就能在這裡挑一個。</p><div class="row"><button class="btn gm" data-act="addPCs">新增 5 個可認領角色</button></div>`;
   else h+=`<div class="row"><label>你的名字</label><span><b>${esc(S.myName||"未設定")}</b></span><button class="btn" data-act="rename">改名</button></div>`;
   h+=`<h3>我的棋子</h3>`;
-  h+= mine.length ? `<div class="list">`+mine.map(([id,t])=>`<div class="item"><span class="dot" style="background:${esc(t.color)}"></span><span class="nm">${esc(t.name)}${isCreator(t)?' <span class="meta">（召喚）</span>':""}</span><button class="btn" data-act="focus" data-id="${id}">定位</button>${isCreator(t)?"":`<button class="btn" data-act="releaseId" data-id="${id}">放棄</button>`}</div>`).join("")+`</div>` : `<p class="empty">還沒有。從下面挑一個認領。</p>`;
+  h+= mine.length ? `<div class="list">`+mine.map(([id,t])=>`<div class="item">${tokDot(t)}<span class="nm">${esc(t.name)}${isCreator(t)?' <span class="meta">（召喚）</span>':""}</span><button class="btn" data-act="focus" data-id="${id}">定位</button>${isCreator(t)?"":`<button class="btn" data-act="releaseId" data-id="${id}">放棄</button>`}</div>`).join("")+`</div>` : `<p class="empty">還沒有。從下面挑一個認領。</p>`;
   h+=`<p class="hint">同一支手機或電腦再進來，棋子會自動還是你的。換裝置時，到下面「其他人的棋子」按「取回」並輸入取回碼。認錯了就按「放棄」再重選。</p>`;
   h+=`<h3>可認領的棋子</h3>`;
-  h+= open.length ? `<div class="list">`+open.map(([id,t])=>`<div class="item"><span class="dot" style="background:${esc(t.color)}"></span><span class="nm">${esc(t.name)}</span><span class="meta">${esc(SIZES.find(s=>s.k===t.size)?.n||"")}</span><button class="btn primary" data-act="claim" data-id="${id}">認領</button></div>`).join("")+`</div>` : `<p class="empty">GM 還沒開放任何棋子。</p>`;
-  if (others.length){ h+=`<h3>其他人的棋子</h3><div class="list">`+others.map(([id,t])=>`<div class="item"><span class="dot" style="background:${esc(t.color)}"></span><span class="nm">${esc(t.name)}</span><span class="meta">${esc(nameOf(t.ownerId))}${S.peers[t.ownerId]?"・在線":""}</span>${!S.isGM&&t.pinHash?`<button class="btn" data-act="reclaim" data-id="${id}">取回</button>`:""}</div>`).join("")+`</div>`; }
+  h+= open.length ? `<div class="list">`+open.map(([id,t])=>`<div class="item">${tokDot(t)}<span class="nm">${esc(t.name)}</span><span class="meta">${esc(SIZES.find(s=>s.k===t.size)?.n||"")}</span><button class="btn primary" data-act="claim" data-id="${id}">認領</button></div>`).join("")+`</div>` : `<p class="empty">GM 還沒開放任何棋子。</p>`;
+  if (others.length){ h+=`<h3>其他人的棋子</h3><div class="list">`+others.map(([id,t])=>`<div class="item">${tokDot(t)}<span class="nm">${esc(t.name)}</span><span class="meta">${esc(nameOf(t.ownerId))}${S.peers[t.ownerId]?"・在線":""}</span>${!S.isGM&&t.pinHash?`<button class="btn" data-act="reclaim" data-id="${id}">取回</button>`:""}</div>`).join("")+`</div>`; }
   return h;
 }
 function entryTok(e){ return e.tid ? S.tokens[e.tid] : null; }
@@ -969,7 +982,7 @@ function panelInit(){
   const inOrder=new Set(order.map(e=>e.tid).filter(Boolean));
   const addable=Object.entries(S.tokens).filter(([id,t])=>!inOrder.has(id) && (S.isGM || t.ownerId===S.me));
   h+=`<h3>加入</h3>`;
-  h+= addable.length ? `<div class="list">`+addable.map(([id,t])=>`<div class="item"><span class="dot" style="background:${esc(t.color)}"></span><span class="nm">${esc(t.name)}</span><button class="btn" data-act="addInit" data-id="${id}">加入</button></div>`).join("")+`</div>` : `<p class="empty">${S.isGM?"地圖上的棋子都已加入。":"你的棋子都已加入。"}</p>`;
+  h+= addable.length ? `<div class="list">`+addable.map(([id,t])=>`<div class="item">${tokDot(t)}<span class="nm">${esc(t.name)}</span><button class="btn" data-act="addInit" data-id="${id}">加入</button></div>`).join("")+`</div>` : `<p class="empty">${S.isGM?"地圖上的棋子都已加入。":"你的棋子都已加入。"}</p>`;
   if (S.isGM){
     h+=`${addable.length>1?`<div class="row"><button class="btn" data-act="initAddAll">全部加入</button></div>`:""}
     <div class="row"><input type="text" id="iCustom" placeholder="不在地圖上的項目，例如：毒霧擴散" maxlength="24" aria-label="自訂項目名稱"><button class="btn" data-act="initCustom">加入</button></div>
@@ -1019,6 +1032,7 @@ body.addEventListener("change", e => {
     if (id==="tName") patchToken(S.sel,{name:e.target.value.trim().slice(0,24)||"?"});
     if (id==="tSize"){ const f=FOOT[e.target.value]; const [x,y]=snapToken({...t,size:e.target.value},t.x+f/2,t.y+f/2); patchToken(S.sel,{size:e.target.value,x,y}); }
     if (id==="tColor") patchToken(S.sel,{color:e.target.value});
+    if (id==="tImg"){ const f=e.target.files[0]; e.target.value=""; if (canControl(t)) uploadTokImg(S.sel,f); }
     if (id==="tVis") patchToken(S.sel,{vision:clamp(+e.target.value||0,0,400)});
     if (id==="tClaim") patchToken(S.sel,{claimable:e.target.checked});
     if (id==="tHidden") patchToken(S.sel,{hidden:e.target.checked});
@@ -1026,7 +1040,7 @@ body.addEventListener("change", e => {
   }
   if (id==="mFog") patchCfg({fog:e.target.checked});
   if (id==="mShare") patchCfg({shareVision:e.target.checked});
-  if (id==="mBg") uploadBg(e.target.files[0]);
+  if (id==="mBg"){ const f=e.target.files[0]; e.target.value=""; uploadBg(f); }
   if (id==="muFile"){ uploadAudio(e.target.files[0]); e.target.value=""; }
   if (id==="muVolP") renderMusicCtl();
   if ((id==="mBgW"||id==="mBgX"||id==="mBgY") && bgImg){ const b=bgFields(), v=+e.target.value;
@@ -1044,6 +1058,8 @@ body.addEventListener("click", async e => {
   if (a==="delTpl"){ delTemplate(S.selTpl); S.selTpl=null; renderPanel(); }
   if (a==="delTok"){ const tid=S.sel; if(!canDeleteToken(S.tokens[tid])) return; deleteTokenFull(tid); renderPanel(); }
   if (a==="unbindTpl") unbindTpl(S.selTpl);
+  if (a==="tImgPick"){ const i=$("#tImg"); if (i) i.click(); }
+  if (a==="tImgRm"){ const t=S.tokens[S.sel]; if (t && canControl(t)){ patchToken(S.sel,{img:null}); renderPanel(); } }
   if (a==="addPCs"){ addDefaultPCs(); renderPanel(); }
   if (a==="dup"){ const t=S.tokens[S.sel]; const nid=uid(); const n={...t,name:t.name+"'",at:Date.now()}; delete n.ownerId; delete n.ownerName; delete n.pinHash; [n.x,n.y]=snapToken(n,t.x+(FOOT[t.size]||1)*1.5,t.y+(FOOT[t.size]||1)/2); putToken(nid,n); S.sel=nid; renderPanel(); }
   if (a==="releaseId") releaseToken(id);
@@ -1097,14 +1113,130 @@ function applyGrid(){
 }
 async function uploadBg(file){
   if (!file) return;
-  toast("處理圖片中…");
+  let cr; try{ cr=await cropImage(file,{title:"裁切底圖",hint:"框出要當地圖的範圍。不需要裁切就直接按「確定」。"}); }catch(err){ toast(err.message||"讀不到這張圖片"); return; }
+  if (!cr) return;
+  toast("壓縮圖片中…");
   try{
-    const url=URL.createObjectURL(file); const im=await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
-    let max=2048, data="";
-    for (let q=0.82; ; ){ const k=Math.min(1,max/Math.max(im.naturalWidth,im.naturalHeight)); const c=document.createElement("canvas"); c.width=Math.round(im.naturalWidth*k); c.height=Math.round(im.naturalHeight*k); c.getContext("2d").drawImage(im,0,0,c.width,c.height); data=c.toDataURL("image/jpeg",q); if (data.length<1.8e6 || max<800) break; max=Math.round(max*0.8); q=Math.max(0.6,q-0.06); }
-    URL.revokeObjectURL(url);
+    const data=encodeCrop(cr, 2048, 1.8e6); URL.revokeObjectURL(cr.url);
     const id=uid(); await ref(`${R}/images/${id}`).set({data, at:Date.now()});
-    patchCfg({bgId:id, bgX:0, bgY:0, bgW:S.cfg.cols}); renderTools(); renderPanel(); toast("底圖已更新：可用「底圖」工具拖曳、縮放對齊");
+    patchCfg({bgId:id, bgX:0, bgY:0, bgW:S.cfg.cols}); renderTools(); renderPanel(); toast(`底圖已更新（${Math.round(data.length*0.75/1024)} KB）：可用「底圖」工具拖曳、縮放對齊`);
+  }catch(err){ onWriteError(err); }
+}
+
+/* ============ 圖片裁切與壓縮 ============ */
+function loadImageFile(file){
+  return new Promise((res,rej)=>{
+    if (!file || !/^image\//.test(file.type||"image/")) return rej(new Error("請選擇圖片檔"));
+    const url=URL.createObjectURL(file), i=new Image();
+    i.onload=()=>res({im:i,url}); i.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error("讀不到這張圖片")); }; i.src=url;
+  });
+}
+/* 回傳 {im, url, x, y, w, h}（原圖像素座標）或 null（取消） */
+async function cropImage(file, {square=false, title="裁切圖片", hint=""}={}){
+  const {im,url}=await loadImageFile(file);
+  const iw=im.naturalWidth, ih=im.naturalHeight;
+  const full={x:0,y:0,w:iw,h:ih};
+  const sq=()=>{ const s=Math.min(iw,ih); return {x:(iw-s)/2,y:(ih-s)/2,w:s,h:s}; };
+  let R0 = square ? sq() : {...full};
+  return new Promise(res=>{
+    const m=$("#modal");
+    m.innerHTML=`<div class="gate-card crop-card"><h2>${esc(title)}</h2><p class="hint">${esc(hint||"拖曳框框移動，拖四個角調整大小。")}</p>
+      <div class="crop-wrap"><canvas id="cropCv"></canvas></div>
+      <p class="hint" id="cropInfo"></p>
+      <div class="row" style="justify-content:space-between;margin-top:6px"><span>${square?"":`<button class="btn" data-c="full">整張圖</button>`}<button class="btn" data-c="reset">${square?"置中":"重設"}</button></span>
+      <span><button class="btn" data-c="0">取消</button> <button class="btn primary" data-c="1">確定</button></span></div></div>`;
+    m.classList.add("open");
+    const cv=m.querySelector("#cropCv"), c2=cv.getContext("2d"), wrap=m.querySelector(".crop-wrap");
+    let k=1, ox=0, oy=0, g=null;
+    const layout=()=>{
+      const dpr=window.devicePixelRatio||1, W=wrap.clientWidth||300, H=Math.min(window.innerHeight*0.55, 460);
+      k=Math.min(W/iw, H/ih); const cw=Math.round(iw*k), ch=Math.round(ih*k);
+      cv.style.width=cw+"px"; cv.style.height=ch+"px"; cv.width=Math.round(cw*dpr); cv.height=Math.round(ch*dpr);
+      c2.setTransform(dpr,0,0,dpr,0,0); paintC();
+    };
+    const paintC=()=>{
+      const cw=iw*k, ch=ih*k, r={x:R0.x*k,y:R0.y*k,w:R0.w*k,h:R0.h*k};
+      c2.clearRect(0,0,cw,ch); c2.drawImage(im,0,0,cw,ch);
+      c2.fillStyle="rgba(0,0,0,.55)"; c2.beginPath(); c2.rect(0,0,cw,ch);
+      if (square){ c2.moveTo(r.x+r.w,r.y+r.h/2); c2.arc(r.x+r.w/2,r.y+r.h/2,r.w/2,0,Math.PI*2,true); }
+      else c2.rect(r.x+r.w,r.y,-r.w,r.h);
+      c2.fill("evenodd");
+      c2.strokeStyle="#fff"; c2.lineWidth=2; c2.setLineDash(square?[5,4]:[]); c2.strokeRect(r.x,r.y,r.w,r.h); c2.setLineDash([]);
+      if (!square){ c2.strokeStyle="rgba(255,255,255,.35)"; c2.lineWidth=1; c2.beginPath(); for (let i=1;i<3;i++){ c2.moveTo(r.x+r.w*i/3,r.y); c2.lineTo(r.x+r.w*i/3,r.y+r.h); c2.moveTo(r.x,r.y+r.h*i/3); c2.lineTo(r.x+r.w,r.y+r.h*i/3); } c2.stroke(); }
+      c2.fillStyle="#ffd36a"; for (const [hx,hy] of [[r.x,r.y],[r.x+r.w,r.y],[r.x,r.y+r.h],[r.x+r.w,r.y+r.h]]){ c2.beginPath(); c2.arc(hx,hy,7,0,7); c2.fill(); }
+      m.querySelector("#cropInfo").textContent=`裁切範圍 ${Math.round(R0.w)}×${Math.round(R0.h)} 像素（原圖 ${iw}×${ih}）`;
+    };
+    const pt=e=>{ const b=cv.getBoundingClientRect(); return [(e.clientX-b.left)/k, (e.clientY-b.top)/k]; };
+    const minS=Math.max(8, 24/k);
+    cv.onpointerdown=e=>{
+      e.preventDefault(); const [px,py]=pt(e), tol=22/k;
+      const cs=[[R0.x,R0.y],[R0.x+R0.w,R0.y],[R0.x,R0.y+R0.h],[R0.x+R0.w,R0.y+R0.h]];
+      let best=-1, bd=1e9; cs.forEach(([cx,cy],i)=>{ const d=Math.hypot(cx-px,cy-py); if (d<tol && d<bd){ bd=d; best=i; } });
+      if (best>=0){ const [ax,ay]=cs[3-best]; g={t:"rs",ax,ay}; }
+      else if (px>=R0.x && px<=R0.x+R0.w && py>=R0.y && py<=R0.y+R0.h) g={t:"mv",sx:px,sy:py,x:R0.x,y:R0.y};
+      else return;
+      try{ cv.setPointerCapture(e.pointerId); }catch{}
+    };
+    cv.onpointermove=e=>{
+      if (!g) return; const [px,py]=pt(e);
+      if (g.t==="mv"){ R0.x=clamp(g.x+px-g.sx,0,iw-R0.w); R0.y=clamp(g.y+py-g.sy,0,ih-R0.h); }
+      else {
+        const dx=px>=g.ax?1:-1, dy=py>=g.ay?1:-1, maxW=dx>0?iw-g.ax:g.ax, maxH=dy>0?ih-g.ay:g.ay;
+        let w=Math.abs(px-g.ax), h=Math.abs(py-g.ay);
+        if (square){ const s=clamp(Math.max(w,h),Math.min(minS,maxW,maxH),Math.min(maxW,maxH)); w=h=s; }
+        else { w=clamp(w,Math.min(minS,maxW),maxW); h=clamp(h,Math.min(minS,maxH),maxH); }
+        R0={x:dx>0?g.ax:g.ax-w, y:dy>0?g.ay:g.ay-h, w, h};
+      }
+      paintC();
+    };
+    cv.onpointerup=cv.onpointercancel=()=>{ g=null; };
+    const onRs=()=>layout(); window.addEventListener("resize",onRs);
+    const finish=v=>{ window.removeEventListener("resize",onRs); m.classList.remove("open"); m.innerHTML=""; m.onclick=null; m.onkeydown=null; if(!v) URL.revokeObjectURL(url); res(v); };
+    m.onclick=e=>{ const b=e.target.closest("button[data-c]"); if(!b) return; const c=b.dataset.c;
+      if (c==="0") return finish(null);
+      if (c==="1") return finish({im,url,x:Math.round(R0.x),y:Math.round(R0.y),w:Math.max(1,Math.round(R0.w)),h:Math.max(1,Math.round(R0.h))});
+      if (c==="full") R0={...full}; if (c==="reset") R0= square ? sq() : {...full}; paintC(); };
+    m.onkeydown=e=>{ if(e.key==="Escape") finish(null); if(e.key==="Enter") m.querySelector('button[data-c="1"]').click(); };
+    requestAnimationFrame(layout);
+  });
+}
+function cropToCanvas(cr, maxSide){
+  const s=Math.min(1, maxSide/Math.max(cr.w,cr.h)), c=document.createElement("canvas");
+  c.width=Math.max(1,Math.round(cr.w*s)); c.height=Math.max(1,Math.round(cr.h*s));
+  const x=c.getContext("2d"); x.imageSmoothingQuality="high"; x.drawImage(cr.im,cr.x,cr.y,cr.w,cr.h,0,0,c.width,c.height); return c;
+}
+const canWebp = (()=>{ try{ const c=document.createElement("canvas"); c.width=c.height=1; return c.toDataURL("image/webp").startsWith("data:image/webp"); }catch{ return false; } })();
+/* 壓到 limit 字元以內；有 WebP 就用 WebP（保留透明），否則 JPEG */
+function encodeCrop(cr, maxSide, limit, {alpha=false}={}){
+  let side=maxSide, q=0.85, data="";
+  for (let i=0;i<8;i++){
+    const c=cropToCanvas(cr, side);
+    if (canWebp) data=c.toDataURL("image/webp", q);
+    else if (alpha){ data=c.toDataURL("image/png"); if (data.length>limit){ const j=document.createElement("canvas"); j.width=c.width; j.height=c.height; const x=j.getContext("2d"); x.fillStyle="#808080"; x.fillRect(0,0,j.width,j.height); x.drawImage(c,0,0); data=j.toDataURL("image/jpeg",q); } }
+    else data=c.toDataURL("image/jpeg", q);
+    if (data.length<=limit || side<=64) break;
+    side=Math.round(side*0.8); q=Math.max(0.6,q-0.06);
+  }
+  return data;
+}
+
+/* 棋子圖片快取：images/{id} 寫入後不會再變 */
+const tokImgs={};
+function tokImg(id){
+  if (!id) return null; const key=R+"/"+id; let c=tokImgs[key];
+  if (!c){ c=tokImgs[key]={img:null,src:""};
+    ref(`${R}/images/${id}`).once("value").then(s=>{ const v=s.val(); if(!v||!v.data) return; const im=new Image(); im.onload=()=>{ c.img=im; c.src=v.data; draw(); if (S.tab==="token") renderPanel(); }; im.src=v.data; }).catch(()=>{ delete tokImgs[key]; });
+  }
+  return c.img;
+}
+async function uploadTokImg(tid, file){
+  if (!file || !S.tokens[tid]) return;
+  let cr; try{ cr=await cropImage(file,{square:true,title:"棋子圖片",hint:"框出要顯示在棋子上的部分（圓框內）。拖曳移動，拖四個角縮放。"}); }catch(err){ toast(err.message||"讀不到這張圖片"); return; }
+  if (!cr) return;
+  try{
+    const data=encodeCrop(cr, 256, 60000, {alpha:true}); URL.revokeObjectURL(cr.url);
+    const id=uid(); await ref(`${R}/images/${id}`).set({data, at:Date.now(), kind:"token"});
+    const im=new Image(); im.onload=()=>{ tokImgs[R+"/"+id]={img:im,src:data}; if (S.tokens[tid]) patchToken(tid,{img:id}); renderPanel(); toast(`棋子圖片已更新（${Math.round(data.length*0.75/1024)} KB）`); }; im.src=data;
   }catch(err){ onWriteError(err); }
 }
 
