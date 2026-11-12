@@ -887,7 +887,7 @@ $("#btnPanel").onclick=()=>{ $("#sheet").classList.contains("open") ? closeSheet
 $("#btnPreview").onclick=()=>{ S.preview=!S.preview; $("#btnPreview").setAttribute("aria-pressed",S.preview); visCache.key=null; draw(); };
 function openSheet(tab){ S.tab=tab||S.tab; $("#sheet").classList.add("open"); renderPanel(); }
 function closeSheet(){ $("#sheet").classList.remove("open"); }
-function tabsFor(){ const t=[["token","棋子"],["init","回合"],["players","認領"],["music","音樂"]]; if (S.isGM) t.push(["map","地圖"],["saves","存檔"]); return t; }
+function tabsFor(){ const t=[["token","棋子"],["init","回合"],["players","認領"]]; if (S.isGM) t.push(["music","音樂"],["map","地圖"],["saves","存檔"]); return t; }
 let panelDirty=false;
 function renderPanel(){
   if (!$("#sheet").classList.contains("open")) return;
@@ -1243,7 +1243,7 @@ async function uploadTokImg(tid, file){
 /* ============ 音樂 ============ */
 const KIND_NAME = {youtube:"YouTube", bilibili:"Bilibili", spotify:"Spotify", audio:"網址", file:"上傳", local:"本機"};
 const AUDIO_MAX = 20*1024*1024, CHUNK = 384*1024;
-const M = { state:null, off:0, vol:clamp(+(ls("bm-vol")??70),0,100), muted:ls("bm-mute")==="1", min:ls("bm-mumin")==="1",
+const M = { state:null, off:0, vol:clamp(+(ls("bm-vol")??70),0,100), muted:ls("bm-mute")==="1", min:ls("bm-mumin")==="1", optOut:ls("bm-muoff")==="1", advKey:"",
   key:"", el:null, yt:null, ytReady:false, sp:null, spPaused:true, spStarted:false, spPos:0, spDur:0, blocked:false, loading:"", urls:{}, playlist:{}, seeking:false };
 const mNow = () => Date.now()+M.off;
 function mPos(st){ if(!st) return 0; return Math.max(0, st.playing ? (mNow()-(+st.t0||0))/1000 : (+st.pos||0)); }
@@ -1285,9 +1285,18 @@ function guessTitle(p){ if (p.kind==="audio"){ try{ const n=decodeURIComponent(n
 
 /* --- 寫入（GM） --- */
 function mSet(st){ M.state=st; w(ref(`${R}/music`).set(st)); applyMusic(); if (S.tab==="music") renderPanel(); }
-function mLoad(tr){ const loop = M.state ? !!M.state.loop : true;
+function mLoad(tr){ const loop = M.state ? !!M.state.loop : true, all = M.state ? !!M.state.all : false;
   M.min=false; lsSet("bm-mumin",null);
-  mSet({kind:tr.kind, src:tr.src, title:tr.title||"", playing:true, t0:mNow(), pos:0, loop, by:S.me}); }
+  mSet({kind:tr.kind, src:tr.src, title:tr.title||"", playing:true, t0:mNow(), pos:0, loop, all, by:S.me}); }
+function plSorted(){ return Object.values(M.playlist).sort((a,b)=>(a.at||0)-(b.at||0)); }
+function mNext(){ // 清單循環：GM 端在一首結束時切到下一首
+  const st=M.state; if (!S.isGM || !st || !st.playing || st.loop || !st.all) return;
+  const k=st.src+"|"+st.t0; if (M.advKey===k) return; M.advKey=k;
+  const pl=plSorted(); const i=pl.findIndex(x=>x.kind===st.kind && x.src===st.src);
+  if (i<0 || pl.length<2){ mSeek(0); return; }
+  mLoad(pl[(i+1)%pl.length]);
+}
+function loopMode(st){ return st.loop ? "one" : st.all ? "all" : "off"; }
 function mPlay(){ const st=M.state; if(!st) return; const p=mCur(); mSet({...st, playing:true, t0:mNow()-p*1000}); }
 function mPause(){ const st=M.state; if(!st) return; mSet({...st, playing:false, pos:r2(mCur())}); }
 function mSeek(p){ const st=M.state; if(!st) return; mSet({...st, pos:r2(p), t0:mNow()-p*1000}); }
@@ -1316,7 +1325,7 @@ async function fileUrl(id){
   return M.urls[id]=URL.createObjectURL(new Blob(bufs,{type:meta.type||"audio/mpeg"}));
 }
 function applyMusic(){
-  const st=M.state, key=st?st.kind+"|"+st.src:"";
+  const st=M.state, key=st&&!M.optOut?st.kind+"|"+st.src:"";
   if (key!==M.key){ M.key=key; teardown(); if (st) build(st, key); }
   syncNow(); renderMusic();
 }
@@ -1329,7 +1338,7 @@ async function build(st, key){
     const a=new Audio(); a.preload="auto"; a.src=src; M.el=a;
     a.addEventListener("loadedmetadata", ()=>{ syncNow(); renderMusicCtl(); });
     a.addEventListener("error", ()=>{ if(M.el===a){ M.loading="無法播放這個連結（要是 mp3 / ogg / m4a 等音檔的直接連結）"; renderMusicCtl(); } });
-    a.addEventListener("ended", ()=>{ if (M.el===a && M.state && M.state.loop){ a.currentTime=0; tryPlay(()=>a.play()); } });
+    a.addEventListener("ended", ()=>{ if (M.el===a && M.state && M.state.loop){ a.currentTime=0; tryPlay(()=>a.play()); } else if (M.el===a) mNext(); });
     applyVol(); syncNow(); renderMusicCtl(); return;
   }
   if (st.kind==="youtube"){
@@ -1342,6 +1351,7 @@ async function build(st, key){
       onReady:()=>{ if(!still()) return; M.ytReady=true; M.loading=""; applyVol(); syncNow(); renderMusicCtl(); fillTitle(()=>{ try{ return M.yt.getVideoData().title; }catch{ return ""; } }); },
       onStateChange:e=>{ if (!still()) return;
         if (e.data===0 && M.state && M.state.loop){ if (list) M.yt.playVideoAt(0); else { M.yt.seekTo(0,true); M.yt.playVideo(); } }
+        else if (e.data===0) mNext();
         if (e.data===1 && M.blocked){ M.blocked=false; renderMusicCtl(); } },
       onError:()=>{ if(still()){ M.loading="這部影片不允許嵌入播放，請換一部"; renderMusicCtl(); } } }});
     return;
@@ -1374,7 +1384,7 @@ function syncBili(force){
 }
 function tryPlay(fn){ try{ const r=fn(); if (r && r.then) r.then(()=>{ if(M.blocked){ M.blocked=false; renderMusicCtl(); } }).catch(err=>{ if(err && err.name==="NotAllowedError" && !M.blocked){ M.blocked=true; renderMusicCtl(); } }); }catch{} }
 function syncNow(){
-  const st=M.state; if (!st) return;
+  const st=M.state; if (!st || M.optOut) return;
   const k=st.kind, p=mCur(), d=mDur();
   const ended = st.playing && !st.loop && d>0 && mPos(st)>=d;
   if (M.el){ const a=M.el;
@@ -1397,8 +1407,9 @@ function applyVol(){ const v=M.muted?0:M.vol/100;
   if (M.el) M.el.volume=v;
   if (M.yt && M.ytReady){ M.yt.setVolume(M.vol); if (M.muted) M.yt.mute(); else M.yt.unMute(); } }
 function setVol(v){ M.vol=clamp(Math.round(v),0,100); lsSet("bm-vol",String(M.vol)); if (M.vol>0 && M.muted){ M.muted=false; lsSet("bm-mute",null); } applyVol(); }
-function toggleMute(){ M.muted=!M.muted; lsSet("bm-mute",M.muted?"1":null); applyVol(); renderMusicCtl(); }
-function unlockAudio(){ const st=M.state; M.blocked=false; if(!st) return;
+function setOptOut(v){ M.optOut=v; lsSet("bm-muoff",v?"1":null); M.key="__"; applyMusic(); if (!v && M.state && M.state.playing) unlockAudio(); toast(v?"已關閉音樂，只影響你這台裝置":"已開啟音樂"); }
+function toggleMute(){ M.muted=!M.muted; lsSet("bm-mute",M.muted?"1":null); applyVol(); renderMusic(); }
+function unlockAudio(){ const st=M.state; M.blocked=false; if(!st || M.optOut) return;
   if (st.playing){
     if (M.el) tryPlay(()=>M.el.play());
     if (M.yt && M.ytReady) M.yt.playVideo();
@@ -1407,6 +1418,7 @@ function unlockAudio(){ const st=M.state; M.blocked=false; if(!st) return;
   }
   setTimeout(syncNow,400); renderMusicCtl(); }
 setInterval(()=>{ if (!M.state) return; if (M.state.playing) syncNow();
+  if (S.isGM && M.state.all && !M.state.loop && M.state.playing){ const d=mDur(), yl=M.state.kind==="youtube"&&new URLSearchParams(M.state.src).get("list"); if (d>0 && !yl && mPos(M.state)>=d+1.5) mNext(); }
   const t=$("#muTime"); if (t && !M.seeking) t.textContent = fmtT(mCur())+(mDur()?" / "+fmtT(mDur()):"");
   const sk=$("#muSeek"); if (sk && !M.seeking){ sk.max=Math.max(1,Math.floor(mDur())); sk.value=Math.floor(mCur()); } }, 1000);
 
@@ -1415,7 +1427,8 @@ function renderMusic(){
   const box=$("#music"), st=M.state;
   box.hidden = !st && !S.isGM;
   box.classList.toggle("min", M.min || !st);
-  $("#muFab").classList.toggle("on", !!(st && st.playing));
+  $("#muFab").classList.toggle("on", !!(st && st.playing && !M.optOut && !M.muted));
+  $("#muFab").textContent = (M.optOut||M.muted) && st ? "🔇" : "♪";
   $("#muFab").setAttribute("aria-expanded", String(!!st && !M.min));
   $("#muTitle").textContent = st ? (st.title || guessTitle(st)) : "";
   $("#muKind").textContent = st ? KIND_NAME[st.kind]||"" : "";
@@ -1423,6 +1436,7 @@ function renderMusic(){
 }
 function renderMusicCtl(){
   const st=M.state, el=$("#muCtl"); if (!st){ el.innerHTML=""; return; }
+  if (M.optOut){ el.innerHTML=`<p class="hint" style="margin:0">你已關閉音樂，不會下載也不會播放（只影響你這台裝置）。</p><div class="row"><button class="btn primary" data-mu="optin">開啟音樂</button></div>`; return; }
   const seekable = st.kind!=="bilibili" && !(st.kind==="youtube" && new URLSearchParams(st.src).get("list")) && !(st.kind==="spotify" && !st.src.startsWith("track"));
   const tm = fmtT(mCur())+(mDur()?" / "+fmtT(mDur()):"");
   let h="";
@@ -1430,21 +1444,24 @@ function renderMusicCtl(){
   if (M.blocked) h+=`<button class="mu-unlock" data-mu="unlock">🔊 瀏覽器擋住了自動播放，點這裡開始聽</button>`;
   if (st.kind==="bilibili" || st.kind==="spotify") h+=`<p class="hint" style="margin:0">${st.kind==="spotify"?"沒登入 Spotify 只能聽 30 秒試聽。":""}沒聲音的話，按播放器裡的播放鍵。</p>`;
   if (S.isGM){
-    h+=`<div class="row"><button class="btn ${st.playing?"":"gm"}" data-mu="toggle" aria-label="${st.playing?"暫停":"播放"}">${st.playing?"❚❚":"▶"}</button><button class="btn" data-mu="restart" aria-label="從頭播放">⏮</button><button class="btn" data-mu="loop" aria-pressed="${!!st.loop}" style="${st.loop?"background:var(--ink);color:var(--paper)":""}" aria-label="循環播放" title="循環播放">🔁</button><button class="btn warn" data-mu="stop" aria-label="停止並清除">⏹</button><span style="flex:1"></span><span id="muTime" class="num">${tm}</span></div>`;
+    h+=`<div class="row"><button class="btn ${st.playing?"":"gm"}" data-mu="toggle" aria-label="${st.playing?"暫停":"播放"}">${st.playing?"❚❚":"▶"}</button><button class="btn" data-mu="restart" aria-label="從頭播放">⏮</button>${(()=>{ const lm=loopMode(st), lab={off:"不循環",one:"單曲循環",all:"清單循環"}[lm]; return `<button class="btn" data-mu="loop" style="${lm!=="off"?"background:var(--ink);color:var(--paper)":""}" aria-label="${lab}（點擊切換）" title="${lab}（點擊切換）">${lm==="one"?"🔂":"🔁"}<span style="font-size:11px;margin-left:3px">${lm==="off"?"關":lm==="one"?"單曲":"清單"}</span></button>`; })()}<button class="btn warn" data-mu="stop" aria-label="停止並清除">⏹</button><span style="flex:1"></span><span id="muTime" class="num">${tm}</span></div>`;
     if (seekable) h+=`<div class="row"><input type="range" id="muSeek" min="0" max="${Math.max(1,Math.floor(mDur()))}" value="${Math.floor(mCur())}" aria-label="播放進度"></div>`;
   } else h+=`<div class="row"><span class="hint" style="margin:0">${st.playing?"GM 正在播放":"GM 已暫停"}</span><span style="flex:1"></span><span id="muTime" class="num">${tm}</span></div>`;
-  h+=`<div class="row"><button class="btn" data-mu="mute" aria-label="${M.muted?"取消靜音":"靜音"}">${M.muted?"🔇":"🔊"}</button><input type="range" id="muVol" min="0" max="100" value="${M.muted?0:M.vol}" aria-label="我的音量"></div>`;
+  h+=`<div class="row"><button class="btn" data-mu="mute" aria-label="${M.muted?"取消靜音":"靜音"}" title="只有你這台裝置靜音">${M.muted?"🔇":"🔊"}</button><input type="range" id="muVol" min="0" max="100" value="${M.muted?0:M.vol}" aria-label="我的音量"></div>`;
+  if (!S.isGM) h+=`<div class="row"><span class="hint" style="margin:0;flex:1">音量和靜音只影響你自己。</span><button class="btn" data-mu="optout">我不想聽</button></div>`;
   el.innerHTML=h;
 }
-$("#muFab").onclick=()=>{ if (!M.state){ openSheet("music"); return; } M.min=!M.min; lsSet("bm-mumin",M.min?"1":null); if (M.blocked) unlockAudio(); renderMusic(); };
+$("#muFab").onclick=()=>{ if (!M.state){ if (S.isGM) openSheet("music"); return; } M.min=!M.min; lsSet("bm-mumin",M.min?"1":null); if (M.blocked) unlockAudio(); renderMusic(); };
 $("#muMin").onclick=()=>{ M.min=true; lsSet("bm-mumin","1"); renderMusic(); };
 $("#muCtl").addEventListener("click", e=>{ const b=e.target.closest("button[data-mu]"); if(!b) return; const a=b.dataset.mu;
   if (a==="unlock") unlockAudio();
   if (a==="mute") toggleMute();
+  if (a==="optout") setOptOut(true);
+  if (a==="optin") setOptOut(false);
   if (!S.isGM || !M.state) return;
   if (a==="toggle") (M.state.playing?mPause:mPlay)();
   if (a==="restart") mSeek(0);
-  if (a==="loop") mSet({...M.state, loop:!M.state.loop});
+  if (a==="loop"){ const lm=loopMode(M.state), nx={off:"one",one:"all",all:"off"}[lm]; mSet({...M.state, loop:nx==="one", all:nx==="all"}); toast({off:"不循環：播完就停",one:"單曲循環",all:"清單循環：播完自動換下一首"}[nx]); }
   if (a==="stop") mStop();
 });
 $("#muCtl").addEventListener("input", e=>{ if (e.target.id==="muVol") setVol(+e.target.value); if (e.target.id==="muSeek"){ M.seeking=true; const t=$("#muTime"); if(t) t.textContent=fmtT(+e.target.value); } });
@@ -1454,7 +1471,9 @@ $("#muCtl").addEventListener("change", e=>{ if (e.target.id==="muSeek"){ M.seeki
 function panelMusic(){
   const st=M.state;
   let h=`<h3>正在播放</h3>`;
-  h+= st ? `<div class="item"><span class="nm">${esc(st.title||guessTitle(st))}<br><span class="meta">${esc(KIND_NAME[st.kind]||"")} · ${st.playing?"播放中":"已暫停"}${st.loop?" · 循環":""}</span></span>${S.isGM?`<button class="btn" data-act="muToggle">${st.playing?"暫停":"播放"}</button>`:""}</div>` : `<p class="empty">${S.isGM?"還沒播放音樂。":"GM 還沒播放音樂。"}</p>`;
+  h+= st ? `<div class="item"><span class="nm">${esc(st.title||guessTitle(st))}<br><span class="meta">${esc(KIND_NAME[st.kind]||"")} · ${st.playing?"播放中":"已暫停"}${st.loop?" · 單曲循環":st.all?" · 清單循環":""}</span></span>${S.isGM?`<button class="btn" data-act="muToggle">${st.playing?"暫停":"播放"}</button>`:""}</div>
+  <div class="row"><label>循環</label>${[["off","不循環"],["one","單曲循環"],["all","清單循環"]].map(([k,n])=>`<button class="btn ${loopMode(st)===k?"primary":""}" data-act="muLoop" data-id="${k}">${n}</button>`).join("")}</div>
+  <p class="hint">清單循環：一首播完自動換清單裡的下一首，播到最後再回到第一首（Bilibili 無法偵測播完，不會自動換）。</p>` : `<p class="empty">${S.isGM?"還沒播放音樂。":"GM 還沒播放音樂。"}</p>`;
   h+=`<div class="row"><label for="muVolP">我的音量</label><input type="range" id="muVolP" min="0" max="100" value="${M.muted?0:M.vol}"></div><p class="hint">音量只影響你自己這台裝置。Bilibili / Spotify 請用播放器裡的音量。</p>`;
   if (!S.isGM) return h;
   h+=`<h3>播放網址</h3>
@@ -1472,6 +1491,7 @@ function panelMusic(){
 async function musicPanelClick(a, id){
   if (!S.isGM) return;
   if (a==="muToggle" && M.state) (M.state.playing?mPause:mPlay)();
+  if (a==="muLoop" && M.state){ mSet({...M.state, loop:id==="one", all:id==="all"}); }
   if (a==="muPlayUrl"||a==="muAddUrl"){
     const p=parseMusicUrl($("#muUrl").value); if (p.err){ toast(p.err); return; }
     const title=$("#muName").value.trim().slice(0,60);
