@@ -1360,6 +1360,65 @@ function mpDrawCells(c, rnd, m, cols, rows, P, rock, floor, tiles){
     if (g(0,1)) c.fillRect(x*P,y*P+P*.9,P,P*.1);
   }
 }
+function mpWalls(cols, rows){ const out=new Array(cols*rows).fill(0); return { out,
+  set(x,y){ if (x>=0&&y>=0&&x<cols&&y<rows) out[y*cols+x]=1; },
+  rect(x,y,w,h){ for (let yy=y;yy<y+h;yy++) for (let xx=x;xx<x+w;xx++) this.set(xx,yy); } }; }
+function mpInPoly(x,y,poly){ let ins=false; for (let i=0,j=poly.length-1;i<poly.length;j=i++){ const [xi,yi]=poly[i],[xj,yj]=poly[j]; if ((yi>y)!==(yj>y) && x<(xj-xi)*(y-yi)/(yj-yi)+xi) ins=!ins; } return ins; }
+function mpRoofJ(c, x, y, w, h, col, P){ // 和式屋頂：瓦片線＋屋脊
+  c.fillStyle="rgba(0,0,0,.35)"; c.fillRect(x+P*.25,y+P*.3,w,h);
+  c.fillStyle=col; c.fillRect(x-P*.12,y-P*.12,w+P*.24,h+P*.24);
+  c.fillStyle="rgba(255,255,255,.08)"; c.fillRect(x-P*.12,y-P*.12,w+P*.24,(h+P*.24)/2);
+  c.strokeStyle="rgba(0,0,0,.28)"; c.lineWidth=Math.max(1,P*.04); for (let xx=x;xx<=x+w;xx+=P*.25){ c.beginPath(); c.moveTo(xx,y-P*.1); c.lineTo(xx,y+h+P*.1); c.stroke(); }
+  c.fillStyle=shade("#555555",.6); c.fillRect(x-P*.12,y+h/2-P*.1,w+P*.24,P*.2);
+  c.fillStyle="rgba(255,255,255,.18)"; c.fillRect(x-P*.12,y+h/2-P*.1,w+P*.24,P*.05);
+}
+function mpSakura(c, rnd, x, y, r){
+  c.fillStyle="rgba(0,0,0,.25)"; c.beginPath(); c.ellipse(x+r*.25,y+r*.3,r,r*.85,0,0,7); c.fill();
+  for (let i=0;i<6;i++) mpBlob(c,rnd,x+(rnd()-.5)*r*.8,y+(rnd()-.5)*r*.8,r*(.45+rnd()*.3),["#f4b6c8","#eea0b8","#f8cad6"][Math.floor(rnd()*3)],9);
+  for (let i=0;i<3;i++) mpBlob(c,rnd,x-r*.2+(rnd()-.5)*r*.4,y-r*.25+(rnd()-.5)*r*.4,r*.22,"rgba(255,255,255,.4)",7);
+}
+function mpPine(c, rnd, x, y, r){
+  c.fillStyle="rgba(80,100,130,.25)"; c.beginPath(); c.ellipse(x+r*.3,y+r*.35,r*.9,r*.7,0,0,7); c.fill();
+  for (let k=0;k<3;k++){ const rr=r*(1-k*.28); c.fillStyle=["#2d4a3a","#355a44","#3e6a50"][k]; c.beginPath(); for (let i=0;i<16;i++){ const a=i/16*Math.PI*2, d=i%2?rr*.55:rr; c.lineTo(x+Math.cos(a)*d,y+Math.sin(a)*d); } c.fill(); }
+  for (let i=0;i<5;i++) mpBlob(c,rnd,x+(rnd()-.5)*r,y+(rnd()-.5)*r,r*.18,"rgba(255,255,255,.85)",6);
+}
+function mpPalm(c, rnd, x, y, P){
+  c.fillStyle="rgba(0,0,0,.2)"; c.beginPath(); c.ellipse(x+P*.5,y+P*.4,P*1.1,P*.5,0,0,7); c.fill();
+  c.fillStyle="#3f7a35"; const n=7, a0=rnd()*7; for (let i=0;i<n;i++){ const a=a0+i/n*Math.PI*2; c.save(); c.translate(x,y); c.rotate(a); c.beginPath(); c.moveTo(0,0); c.quadraticCurveTo(P*.6,-P*.25,P*1.2,P*.1); c.quadraticCurveTo(P*.6,P*.1,0,0); c.fill(); c.restore(); }
+  c.fillStyle="#6b4a2a"; c.beginPath(); c.arc(x,y,P*.16,0,7); c.fill();
+}
+function mpDeadTree(c, rnd, x, y, r){
+  c.strokeStyle="#2b221a"; c.lineCap="round";
+  const br=(x,y,a,l,w)=>{ if (l<r*.12) return; const x2=x+Math.cos(a)*l, y2=y+Math.sin(a)*l; c.lineWidth=w; c.beginPath(); c.moveTo(x,y); c.lineTo(x2,y2); c.stroke(); br(x2,y2,a-.5+rnd()*.3,l*.68,w*.65); br(x2,y2,a+.4+rnd()*.3,l*.62,w*.65); };
+  for (let i=0;i<4;i++) br(x,y,i/4*Math.PI*2+rnd(),r*.45,r*.1);
+  c.fillStyle="#2b221a"; c.beginPath(); c.arc(x,y,r*.12,0,7); c.fill();
+}
+function mpGear(c, x, y, r, teeth, col){
+  c.fillStyle="rgba(0,0,0,.35)"; c.beginPath(); c.arc(x+r*.08,y+r*.1,r*1.05,0,7); c.fill();
+  c.fillStyle=col; c.beginPath(); for (let i=0;i<teeth*2;i++){ const a=i/(teeth*2)*Math.PI*2, d=i%2?r:r*1.18; c.lineTo(x+Math.cos(a-.12)*d,y+Math.sin(a-.12)*d); c.lineTo(x+Math.cos(a+.12)*d,y+Math.sin(a+.12)*d); } c.closePath(); c.fill();
+  c.fillStyle=shade("#b08a3a",.7); c.beginPath(); c.arc(x,y,r*.65,0,7); c.fill(); c.fillStyle=col; c.beginPath(); c.arc(x,y,r*.5,0,7); c.fill();
+  c.fillStyle="#3b3530"; c.beginPath(); c.arc(x,y,r*.15,0,7); c.fill();
+  c.strokeStyle=shade("#b08a3a",.6); c.lineWidth=r*.08; for (let i=0;i<4;i++){ const a=i/4*Math.PI*2+.4; c.beginPath(); c.moveTo(x+Math.cos(a)*r*.18,y+Math.sin(a)*r*.18); c.lineTo(x+Math.cos(a)*r*.5,y+Math.sin(a)*r*.5); c.stroke(); }
+}
+function mpBuildingS(c, rnd, x, y, w, h, P){ // 蒸汽龐克建築
+  const col=["#7a3b2a","#4f7f6e","#6a4a3a","#5a5050"][Math.floor(rnd()*4)];
+  c.fillStyle="rgba(0,0,0,.45)"; c.fillRect((x+.25)*P,(y+.3)*P,w*P,h*P);
+  c.fillStyle=col; c.fillRect(x*P,y*P,w*P,h*P);
+  c.strokeStyle="rgba(0,0,0,.25)"; c.lineWidth=Math.max(1,P*.04); for (let yy=y+.25;yy<y+h;yy+=.25){ c.beginPath(); c.moveTo(x*P,yy*P); c.lineTo((x+w)*P,yy*P); c.stroke(); }
+  c.strokeStyle="#c9a050"; c.lineWidth=P*.08; c.strokeRect(x*P+P*.04,y*P+P*.04,w*P-P*.08,h*P-P*.08);
+  const n=1+Math.floor(rnd()*2); for (let i=0;i<n;i++){ const cx=(x+.3+rnd()*(w-.6))*P, cy=(y+.3+rnd()*(h-.6))*P; c.fillStyle="#3a2a22"; c.fillRect(cx-P*.18,cy-P*.18,P*.36,P*.36); c.fillStyle="#1a1410"; c.fillRect(cx-P*.1,cy-P*.1,P*.2,P*.2);
+    for (let j=0;j<3;j++) mpBlob(c,rnd,cx+j*P*.22,cy-j*P*.26,P*(.18+j*.07),`rgba(200,200,195,${.22-j*.06})`,7); }
+}
+function mpCyberBlock(c, rnd, x, y, w, h, P, wl){
+  c.fillStyle="#1c1a26"; c.fillRect(x*P,y*P,w*P,h*P); c.strokeStyle="#0c0b12"; c.lineWidth=P*.08; c.strokeRect(x*P,y*P,w*P,h*P);
+  for (let i=0;i<w*h*.6;i++){ c.fillStyle=rnd()<.5?"#2a2836":"#141219"; c.fillRect((x+rnd()*(w-.4))*P,(y+rnd()*(h-.4))*P,P*(.2+rnd()*.3),P*(.2+rnd()*.3)); }
+  const neon=["#ff3cc8","#38e8ff","#a0ff4a","#ffb03a","#9a6bff"][Math.floor(rnd()*5)], edgeX = x===0 ? (x+w)*P-P*.12 : x*P+P*.04;
+  c.save(); c.shadowColor=neon; c.shadowBlur=P*.9; c.fillStyle=neon; c.fillRect(edgeX,(y+.4)*P,P*.08,(h-.8)*P);
+  const sy=y+.5+rnd()*(h-1.5); c.fillRect(x===0?(x+w)*P-P*.9:x*P+P*.15,sy*P,P*.75,P*.35); c.restore();
+  c.fillStyle="rgba(255,255,255,.75)"; c.fillRect((x===0?(x+w)*P-P*.8:x*P+P*.25),(sy+.12)*P,P*.55,P*.1);
+  const g=c.createLinearGradient(x===0?(x+w)*P:x*P,0,x===0?(x+w+2)*P:(x-2)*P,0); g.addColorStop(0,hexA(neon,.22)); g.addColorStop(1,hexA(neon,0)); c.fillStyle=g; c.fillRect(x===0?(x+w)*P:(x-2)*P,y*P,2*P,h*P);
+  wl.rect(x,y,w,h);
+}
 const MAP_PRESETS = [
   { id:"blank", name:"空白長廊", cols:12, rows:40, desc:"沒有底圖，直向長條" },
   { id:"road", name:"山道", cols:12, rows:40, desc:"蜿蜒道路、小溪與木橋",
@@ -1399,7 +1458,7 @@ const MAP_PRESETS = [
       for (let i=0;i<20;i++){ const a=rnd()*7, d=3+rnd()*2.5; mpBlob(c,rnd,(mx+Math.cos(a)*d*1.3)*P,(my+Math.sin(a)*d)*P,P*.3,"#3d6a2c",7); }
       return null;
     } },
-  { id:"dungeon", name:"地城", cols:24, rows:24, desc:"石室與走廊，自動設好牆壁",
+  { id:"dungeon", walls:true, name:"地城", cols:24, rows:24, desc:"石室與走廊，自動設好牆壁",
     draw(c, rnd, cols, rows, P){
       const m=Array.from({length:rows},()=>Array(cols).fill(0)), rooms=[];
       for (let t=0;t<200 && rooms.length<8;t++){ const w=3+Math.floor(rnd()*4), h=3+Math.floor(rnd()*4), x=1+Math.floor(rnd()*(cols-w-2)), y=1+Math.floor(rnd()*(rows-h-2));
@@ -1417,7 +1476,7 @@ const MAP_PRESETS = [
         if (rnd()<.35) mpBlob(c,rnd,(r.x+rnd()*r.w)*P,(r.y+rnd()*r.h)*P,P*.3,"rgba(110,20,20,.35)",8); }
       return m.flat().map(v=>v?0:1);
     } },
-  { id:"cave", name:"洞穴", cols:24, rows:24, desc:"天然岩洞，自動設好牆壁",
+  { id:"cave", walls:true, name:"洞穴", cols:24, rows:24, desc:"天然岩洞，自動設好牆壁",
     draw(c, rnd, cols, rows, P){
       let m, best=[];
       for (let tries=0; tries<8 && best.length<cols*rows*0.38; tries++){
@@ -1435,7 +1494,7 @@ const MAP_PRESETS = [
       for (const [x,y] of best){ if (rnd()<.05) mpRock(c,rnd,(x+.5)*P,(y+.5)*P,P*.2); if (rnd()<.03) mpBlob(c,rnd,(x+.5)*P,(y+.5)*P,P*.45,"rgba(70,120,140,.5)",8); if (rnd()<.04){ c.fillStyle="rgba(150,220,200,.55)"; c.beginPath(); c.arc((x+rnd())*P,(y+rnd())*P,P*.06,0,7); c.fill(); } }
       return m.flat().map(v=>v?0:1);
     } },
-  { id:"tavern", name:"酒館", cols:16, rows:12, desc:"吧台、桌椅與壁爐",
+  { id:"tavern", walls:true, name:"酒館", cols:16, rows:12, desc:"吧台、桌椅與壁爐",
     draw(c, rnd, cols, rows, P){
       const W=cols*P, H=rows*P; c.fillStyle="#3a3631"; c.fillRect(0,0,W,H);
       // 木地板
@@ -1459,7 +1518,7 @@ const MAP_PRESETS = [
       const walls=[]; for (let y=0;y<rows;y++) for (let x=0;x<cols;x++) walls.push((x===0||y===0||x===cols-1||y===rows-1) && !(y===rows-1&&(x===door||x===door+1)) ? 1 : 0);
       return walls;
     } },
-  { id:"arena", name:"競技場", cols:20, rows:20, desc:"圓形沙地與石柱，自動設好牆壁",
+  { id:"arena", walls:true, name:"競技場", cols:20, rows:20, desc:"圓形沙地與石柱，自動設好牆壁",
     draw(c, rnd, cols, rows, P){
       const W=cols*P, H=rows*P, mx=cols/2, my=rows/2, R=8.6;
       c.fillStyle="#5d5850"; c.fillRect(0,0,W,H);
@@ -1472,6 +1531,186 @@ const MAP_PRESETS = [
       for (const [x,y] of pillars){ c.fillStyle="rgba(0,0,0,.35)"; c.fillRect(x*P+P*.2,y*P+P*.25,P,P); c.fillStyle="#8c877d"; c.fillRect(x*P+P*.05,y*P+P*.05,P*.9,P*.9); c.fillStyle="#a7a196"; c.fillRect(x*P+P*.05,y*P+P*.05,P*.9,P*.2); }
       const walls=[]; for (let y=0;y<rows;y++) for (let x=0;x<cols;x++) walls.push(Math.hypot(x+.5-mx,y+.5-my)>R || pillars.some(([px,py])=>px===x&&py===y) ? 1 : 0);
       return walls;
+    } },
+  { id:"rooftop", name:"摩天大樓頂樓", cols:20, rows:20, walls:true, desc:"停機坪、水塔、空調機，邊緣是高空",
+    draw(c, rnd, cols, rows, P){
+      const W=cols*P, H=rows*P, wl=mpWalls(cols,rows);
+      c.fillStyle="#0c111b"; c.fillRect(0,0,W,H);
+      for (let i=0;i<cols*rows*2;i++){ c.fillStyle=rnd()<.6?`rgba(255,210,120,${.2+rnd()*.5})`:`rgba(120,190,255,${.2+rnd()*.4})`; c.fillRect(rnd()*W,rnd()*H,P*.06,P*.06); }
+      c.fillStyle="rgba(0,0,0,.6)"; c.fillRect(1.35*P,1.45*P,(cols-2)*P,(rows-2)*P);
+      for (let y=1;y<rows-1;y++) for (let x=1;x<cols-1;x++){ c.fillStyle=mixHex("#8d8f91","#6e7072",rnd()*.5); c.fillRect(x*P,y*P,P,P); c.strokeStyle="rgba(0,0,0,.18)"; c.lineWidth=Math.max(1,P/40); c.strokeRect(x*P,y*P,P,P); }
+      mpSpeckle(c,rnd,P,P,(cols-2)*P,(rows-2)*P,"rgba(0,0,0,.18)",cols*rows*3,P*.08);
+      c.strokeStyle="#b4b6b8"; c.lineWidth=P*.22; c.strokeRect(1.11*P,1.11*P,(cols-2.22)*P,(rows-2.22)*P);
+      for (let y=0;y<rows;y++) for (let x=0;x<cols;x++) if (x===0||y===0||x===cols-1||y===rows-1) wl.set(x,y);
+      // 停機坪
+      const hx=cols*.62, hy=rows*.62, hr=3.3;
+      c.fillStyle="#4c5156"; c.beginPath(); c.arc(hx*P,hy*P,hr*P,0,7); c.fill();
+      c.strokeStyle="#f2c230"; c.lineWidth=P*.18; c.beginPath(); c.arc(hx*P,hy*P,(hr-.4)*P,0,7); c.stroke();
+      c.fillStyle="#f4f4f4"; c.font=`900 ${P*2.6}px sans-serif`; c.textAlign="center"; c.textBaseline="middle"; c.fillText("H",hx*P,hy*P+P*.1);
+      // 水塔
+      const tx=3.5, ty=3.5; c.fillStyle="rgba(0,0,0,.4)"; c.beginPath(); c.arc((tx+.3)*P,(ty+.35)*P,1.4*P,0,7); c.fill();
+      c.fillStyle="#7b5a3c"; c.beginPath(); c.arc(tx*P,ty*P,1.35*P,0,7); c.fill(); c.strokeStyle="#4d3824"; c.lineWidth=P*.08; for (const r of [1.1,.75,.4]){ c.beginPath(); c.arc(tx*P,ty*P,r*P,0,7); c.stroke(); }
+      wl.rect(2,2,3,3);
+      // 樓梯間
+      c.fillStyle="rgba(0,0,0,.4)"; c.fillRect(14.3*P,2.35*P,3*P,2*P); c.fillStyle="#9a9b9c"; c.fillRect(14*P,2*P,3*P,2*P); c.fillStyle="#6c7c8c"; c.fillRect(15.1*P,3.7*P,.8*P,.3*P); wl.rect(14,2,3,2);
+      // 空調機
+      for (const [x,y] of [[3,9],[3,12],[6,9],[9,3]]){ c.fillStyle="rgba(0,0,0,.4)"; c.fillRect((x+.2)*P,(y+.25)*P,2*P,P); c.fillStyle="#c7c9cb"; c.fillRect(x*P,y*P,2*P,P); c.fillStyle="#5d6166"; c.beginPath(); c.arc((x+.55)*P,(y+.5)*P,P*.33,0,7); c.arc((x+1.45)*P,(y+.5)*P,P*.33,0,7); c.fill(); c.strokeStyle="#9ea2a6"; c.lineWidth=P*.04; for (const cx of [.55,1.45]){ c.beginPath(); c.moveTo((x+cx-.3)*P,(y+.5)*P); c.lineTo((x+cx+.3)*P,(y+.5)*P); c.moveTo((x+cx)*P,(y+.2)*P); c.lineTo((x+cx)*P,(y+.8)*P); c.stroke(); } }
+      // 天窗
+      for (const [x,y] of [[2,15],[6,15]]){ c.fillStyle="#3c6f8f"; c.fillRect(x*P,y*P,3*P,2*P); c.fillStyle="rgba(255,255,255,.25)"; c.beginPath(); c.moveTo(x*P,y*P); c.lineTo((x+1.2)*P,y*P); c.lineTo(x*P,(y+1)*P); c.fill(); c.strokeStyle="#aab"; c.lineWidth=P*.06; c.strokeRect(x*P,y*P,3*P,2*P); c.beginPath(); c.moveTo((x+1.5)*P,y*P); c.lineTo((x+1.5)*P,(y+2)*P); c.stroke(); }
+      // 天線
+      c.strokeStyle="#ddd"; c.lineWidth=P*.06; c.beginPath(); c.moveTo(17.5*P,16.5*P); c.lineTo(17.5*P,18*P); c.stroke(); c.fillStyle="#ff4040"; c.beginPath(); c.arc(17.5*P,16.5*P,P*.12,0,7); c.fill();
+      return wl.out;
+    } },
+  { id:"jvillage", name:"和風村莊", cols:24, rows:20, walls:true, desc:"神社、鳥居、櫻花樹與錦鯉池",
+    draw(c, rnd, cols, rows, P){
+      const W=cols*P, H=rows*P, wl=mpWalls(cols,rows), mx=Math.floor(cols/2);
+      mpGrass(c, rnd, W, H, P, "#6f8f4c");
+      c.fillStyle="#b9a27a"; c.fillRect((mx-4)*P,2*P,8*P,5*P); mpSpeckle(c,rnd,(mx-4)*P,2*P,8*P,5*P,"rgba(90,70,40,.3)",200,P*.08);
+      // 石板路
+      for (let y=7;y<rows;y++) for (let x=mx-1;x<=mx;x++){ c.fillStyle=mixHex("#a8a49a","#86827a",rnd()*.6); c.beginPath(); c.roundRect?c.roundRect(x*P+P*.08,y*P+P*.08,P*.84,P*.84,P*.18):c.rect(x*P+P*.08,y*P+P*.08,P*.84,P*.84); c.fill(); }
+      // 神社
+      mpRoofJ(c, (mx-3)*P, 2.3*P, 6*P, 3.4*P, "#7a2f2a", P); wl.rect(mx-3,2,6,4);
+      c.fillStyle="#d8d0c0"; c.fillRect((mx-.7)*P,5.7*P,1.4*P,.3*P);
+      // 鳥居
+      const ty=rows-5; c.fillStyle="rgba(0,0,0,.3)"; c.fillRect((mx-2.6)*P,(ty+.15)*P,5.4*P,.35*P);
+      c.fillStyle="#c8352b"; c.fillRect((mx-2.8)*P,ty*P,5.6*P,.32*P); c.fillStyle="#222"; c.fillRect((mx-3)*P,(ty-.12)*P,6*P,.18*P);
+      c.fillStyle="#a82a22"; for (const x of [mx-2,mx+1.6]) c.fillRect(x*P,(ty-.1)*P,.4*P,.55*P);
+      // 民家
+      const houses=[[2,3,4,3],[2,9,4,3],[2,14,5,3],[cols-6,3,4,3],[cols-7,9,5,3]];
+      for (const [x,y,w,h] of houses){ mpRoofJ(c, x*P, y*P, w*P, h*P, rnd()<.5?"#3d4a5c":"#4a4a4f", P); wl.rect(x,y,w,h); }
+      // 錦鯉池
+      const px=mx+5.5, py=rows-4; mpBlob(c,rnd,px*P,py*P,2*P,"#7f8b7c",12); mpBlob(c,rnd,px*P,py*P,1.7*P,"#2f6b78",12);
+      for (let i=0;i<5;i++){ const a=rnd()*7, d=rnd()*1.1; c.fillStyle=rnd()<.5?"#f08a3a":"#f5f0e6"; c.beginPath(); c.ellipse((px+Math.cos(a)*d)*P,(py+Math.sin(a)*d)*P,P*.18,P*.08,a,0,7); c.fill(); }
+      for (let i=0;i<4;i++){ c.fillStyle="#4f8a3c"; c.beginPath(); c.arc((px+(rnd()-.5)*2.4)*P,(py+(rnd()-.5)*2)*P,P*.2,0,7); c.fill(); }
+      // 石燈籠
+      for (const [x,y] of [[mx-2,9],[mx+1,9],[mx-2,13],[mx+1,13]]){ c.fillStyle="rgba(0,0,0,.3)"; c.fillRect(x*P+P*.3,y*P+P*.3,P*.6,P*.6); c.fillStyle="#9a968c"; c.fillRect(x*P+P*.2,y*P+P*.2,P*.6,P*.6); c.fillStyle="#ffd98a"; c.fillRect(x*P+P*.38,y*P+P*.38,P*.24,P*.24); }
+      // 櫻花
+      for (let i=0;i<10;i++){ let x=2+rnd()*(cols-4), y=1+rnd()*(rows-2); if (Math.abs(x-mx)<5 && y<8) continue; if (Math.abs(x-mx)<2 || Math.hypot(x-(mx+5.5),y-(rows-4))<3) continue; mpSakura(c,rnd,x*P,y*P,P*(.8+rnd()*.4)); }
+      mpSpeckle(c,rnd,0,0,W,H,"rgba(255,190,210,.8)",cols*rows*.8,P*.08);
+      return wl.out;
+    } },
+  { id:"cyber", name:"賽博龐克街道", cols:16, rows:28, walls:true, desc:"霓虹招牌、積水倒影、兩側高樓",
+    draw(c, rnd, cols, rows, P){
+      const W=cols*P, H=rows*P, wl=mpWalls(cols,rows);
+      c.fillStyle="#15151d"; c.fillRect(0,0,W,H); mpSpeckle(c,rnd,0,0,W,H,"rgba(255,255,255,.04)",cols*rows*6,P*.1);
+      // 人行道
+      for (const sx of [3,11]) for (let y=0;y<rows;y++) for (let x=sx;x<sx+2;x++){ c.fillStyle=mixHex("#2c2b38","#22212c",rnd()); c.fillRect(x*P+1,y*P+1,P-2,P-2); }
+      // 車道標線
+      c.strokeStyle="rgba(240,220,90,.8)"; c.lineWidth=P*.07; c.setLineDash([P*.8,P*.6]); c.beginPath(); c.moveTo(8*P,0); c.lineTo(8*P,H); c.stroke(); c.setLineDash([]);
+      c.strokeStyle="rgba(255,255,255,.5)"; c.lineWidth=P*.05; for (const x of [5,11]){ c.beginPath(); c.moveTo(x*P,0); c.lineTo(x*P,H); c.stroke(); }
+      const cw=Math.floor(rows*.4); c.fillStyle="rgba(255,255,255,.55)"; for (let x=5.2;x<11;x+=.7) c.fillRect(x*P,cw*P,.38*P,2*P);
+      // 兩側建築（留巷口）
+      const alleys=[Math.floor(rows*.2), Math.floor(rows*.7)];
+      for (const [bx,bw] of [[0,3],[13,3]]){ let y=0; while (y<rows){ const h=3+Math.floor(rnd()*4); const hh=Math.min(h,rows-y);
+          if (alleys.some(a=>a>=y&&a<y+hh)){ const a=alleys.find(a=>a>=y&&a<y+hh); if (a>y) mpCyberBlock(c,rnd,bx,y,bw,a-y,P,wl); y=a+1; continue; }
+          mpCyberBlock(c,rnd,bx,y,bw,hh,P,wl); y+=hh; } }
+      // 積水倒影
+      for (let i=0;i<6;i++){ const x=5.5+rnd()*5, y=rnd()*rows, col=rnd()<.5?"255,60,200":"60,220,255"; const g=c.createRadialGradient(x*P,y*P,0,x*P,y*P,P*1.2); g.addColorStop(0,`rgba(${col},.35)`); g.addColorStop(1,`rgba(${col},0)`); c.fillStyle="rgba(40,50,70,.6)"; c.beginPath(); c.ellipse(x*P,y*P,P*1.1,P*.6,0,0,7); c.fill(); c.fillStyle=g; c.beginPath(); c.ellipse(x*P,y*P,P*1.1,P*.6,0,0,7); c.fill(); }
+      // 車輛
+      for (const [x,y,col] of [[6.2,rows*.15,"#2a3a5a"],[9.4,rows*.62,"#5a2a3a"]]){ c.fillStyle="rgba(0,0,0,.5)"; c.fillRect((x-.05)*P,(y+.1)*P,1.5*P,2.6*P); c.fillStyle=col; c.fillRect(x*P,y*P,1.4*P,2.5*P); c.fillStyle="#9fd8ff"; c.fillRect((x+.15)*P,(y+.5)*P,1.1*P,.5*P); c.save(); c.shadowColor="#fff6c0"; c.shadowBlur=P*.8; c.fillStyle="#fff6c0"; c.fillRect((x+.1)*P,y*P,.3*P,.12*P); c.fillRect((x+1)*P,y*P,.3*P,.12*P); c.restore(); }
+      // 販賣機
+      for (const [x,y] of [[3,rows*.5],[12,rows*.33]]){ c.save(); c.shadowColor="#5ff"; c.shadowBlur=P*.5; c.fillStyle="#1f3f5f"; c.fillRect(x*P+P*.1,y*P,P*.8,P*.5); c.restore(); c.fillStyle="#bff"; c.fillRect(x*P+P*.2,y*P+P*.08,P*.6,P*.15); }
+      return wl.out;
+    } },
+  { id:"coast", name:"海岸", cols:24, rows:18, desc:"沙灘、棧橋、小船與礁石",
+    draw(c, rnd, cols, rows, P){
+      const W=cols*P, H=rows*P, sx=y=>cols*.55+Math.sin(y*.35)*1.4+Math.sin(y*.9)*.4;
+      const sea=c.createLinearGradient(cols*.5*P,0,W,0); sea.addColorStop(0,"#4cc0c0"); sea.addColorStop(.35,"#2a8aa8"); sea.addColorStop(1,"#18507a"); c.fillStyle=sea; c.fillRect(0,0,W,H);
+      c.strokeStyle="rgba(255,255,255,.25)"; c.lineWidth=P*.05; for (let i=0;i<cols*rows*.25;i++){ const x=cols*.6+rnd()*cols*.4, y=rnd()*rows; c.beginPath(); c.arc(x*P,y*P,P*.5,Math.PI*1.15,Math.PI*1.85); c.stroke(); }
+      const shore=(off)=>{ c.beginPath(); c.moveTo(0,0); for (let y=0;y<=rows;y+=.2) c.lineTo((sx(y)+off)*P,y*P); c.lineTo(0,H); c.closePath(); };
+      shore(.9); c.fillStyle="rgba(255,255,255,.55)"; c.fill();
+      shore(.6); c.fillStyle="#bda36f"; c.fill();
+      shore(0); c.fillStyle="#dcc690"; c.fill();
+      mpSpeckle(c,rnd,0,0,cols*.6*P,H,"rgba(120,90,50,.25)",cols*rows*3,P*.07); mpSpeckle(c,rnd,0,0,cols*.6*P,H,"rgba(255,255,255,.3)",cols*rows*2,P*.06);
+      // 沙丘草
+      c.fillStyle="#7a9a4c"; c.fillRect(0,0,2*P,H); for (let i=0;i<rows*8;i++){ mpBlob(c,rnd,(rnd()*2.6)*P,rnd()*H,P*(.2+rnd()*.3),rnd()<.5?"#8aaa5a":"#5f7f3c",6); }
+      // 棧橋與小船
+      const py=Math.floor(rows*.4), x0=Math.floor(sx(py))-1;
+      c.fillStyle="rgba(0,0,0,.3)"; c.fillRect((x0+.2)*P,(py+.25)*P,8*P,2*P);
+      for (let x=x0;x<x0+8;x+=.5){ c.fillStyle=mixHex("#8a6a44","#6a4c2c",rnd()); c.fillRect(x*P,py*P,.48*P,2*P); }
+      c.fillStyle="#4a3420"; for (let x=x0+1;x<x0+8;x+=2){ c.beginPath(); c.arc(x*P,(py-.05)*P,P*.13,0,7); c.arc(x*P,(py+2.05)*P,P*.13,0,7); c.fill(); }
+      const bx=x0+5, by=py+3.4; c.fillStyle="rgba(0,0,0,.25)"; c.beginPath(); c.ellipse((bx+.2)*P,(by+.2)*P,1.8*P,.75*P,0,0,7); c.fill();
+      c.fillStyle="#7a3a22"; c.beginPath(); c.moveTo((bx-1.8)*P,by*P); c.quadraticCurveTo((bx-1)*P,(by-.8)*P,(bx+1.8)*P,(by-.2)*P); c.lineTo((bx+1.8)*P,(by+.2)*P); c.quadraticCurveTo((bx-1)*P,(by+.8)*P,(bx-1.8)*P,by*P); c.fill();
+      c.fillStyle="#c9a77a"; c.fillRect((bx-.8)*P,(by-.35)*P,.25*P,.7*P); c.fillRect((bx+.3)*P,(by-.4)*P,.25*P,.8*P);
+      // 礁石與棕櫚
+      for (let i=0;i<7;i++){ const y=rnd()*rows, x=sx(y)+.5+rnd()*3; if (Math.abs(y-py-1)<2) continue; mpRock(c,rnd,x*P,y*P,P*(.3+rnd()*.35)); }
+      for (let i=0;i<5;i++){ const y=1+rnd()*(rows-2), x=2.5+rnd()*(sx(y)-5); mpPalm(c,rnd,x*P,y*P,P); }
+      for (let i=0;i<4;i++){ c.fillStyle="#f0e0c0"; c.beginPath(); c.arc((3+rnd()*(cols*.4))*P,rnd()*H,P*.08,0,7); c.fill(); }
+      return null;
+    } },
+  { id:"steam", name:"蒸汽龐克都市", cols:22, rows:22, walls:true, desc:"石板街、軌道、銅管、齒輪廣場與煙囪",
+    draw(c, rnd, cols, rows, P){
+      const W=cols*P, H=rows*P, wl=mpWalls(cols,rows), ry=Math.floor(rows*.45), rx=Math.floor(cols*.4);
+      // 石板街
+      c.fillStyle="#3b3530"; c.fillRect(0,0,W,H);
+      for (let y=0;y<rows;y+=.5) for (let x=(y*2%2)*.25;x<cols;x+=.5){ c.fillStyle=mixHex("#7d7266","#5c534a",rnd()); c.beginPath(); c.ellipse((x+.25)*P,(y+.25)*P,P*.23,P*.21,0,0,7); c.fill(); }
+      // 軌道
+      c.fillStyle="#4a3a2a"; for (let x=0;x<cols;x+=.6) c.fillRect(x*P,(ry+.9)*P,.25*P,1.2*P);
+      c.strokeStyle="#a8a29a"; c.lineWidth=P*.09; for (const yy of [ry+1.1,ry+1.9]){ c.beginPath(); c.moveTo(0,yy*P); c.lineTo(W,yy*P); c.stroke(); }
+      // 建築：四個街區
+      const blocks=[[0,0,rx,ry],[rx+4,0,cols-rx-4,ry],[0,ry+4,rx,rows-ry-4],[rx+4,ry+4,cols-rx-4,rows-ry-4]];
+      const plaza=blocks[3];
+      for (const [bx,by,bw,bh] of blocks){ if (bw<=0||bh<=0) continue; const isPlaza=(bx===plaza[0]&&by===plaza[1]);
+        if (isPlaza){ const gx=(bx+bw/2)*P, gy=(by+bh/2)*P; mpGear(c,gx,gy,Math.min(bw,bh)*.32*P,12,"#b08a3a"); mpGear(c,gx-Math.min(bw,bh)*.4*P,gy-Math.min(bw,bh)*.3*P,Math.min(bw,bh)*.16*P,8,"#8a6a3a"); continue; }
+        let y=by; while (y<by+bh-1){ const h=Math.min(2+Math.floor(rnd()*3), by+bh-y-1); let x=bx; while (x<bx+bw-1){ const w=Math.min(2+Math.floor(rnd()*3), bx+bw-x-1); if (w<1||h<1) break;
+          mpBuildingS(c,rnd,x,y,w,h,P); wl.rect(x,y,w,h); x+=w+(rnd()<.3?1:0); } y+=h+1; } }
+      // 銅管
+      c.strokeStyle="#c08a3a"; c.lineWidth=P*.18; c.beginPath(); c.moveTo(0,(ry-.15)*P); c.lineTo(W,(ry-.15)*P); c.stroke(); c.beginPath(); c.moveTo((rx-.15)*P,0); c.lineTo((rx-.15)*P,(ry-.15)*P); c.stroke();
+      c.fillStyle="#7a5a2a"; for (let x=1;x<cols;x+=2.5){ c.fillRect(x*P,(ry-.3)*P,P*.25,P*.3); } c.fillStyle="#d8b070"; c.beginPath(); c.arc((rx-.15)*P,(ry-.15)*P,P*.25,0,7); c.fill();
+      // 蒸氣
+      for (let i=0;i<5;i++){ const x=rnd()*cols, y=rnd()*rows; for (let j=0;j<3;j++) mpBlob(c,rnd,(x+j*.3)*P,(y-j*.3)*P,P*(.35+j*.12),"rgba(230,230,225,.1)",8); }
+      return wl.out;
+    } },
+  { id:"graveyard", name:"墓園", cols:20, rows:16, walls:true, desc:"墓碑、陵墓、枯樹與薄霧",
+    draw(c, rnd, cols, rows, P){
+      const W=cols*P, H=rows*P, wl=mpWalls(cols,rows);
+      mpGrass(c, rnd, W, H, P, "#3e4a35");
+      c.strokeStyle="#6b5b45"; c.lineCap="round"; c.lineWidth=P*1.1; c.beginPath(); c.moveTo(cols/2*P,H); c.bezierCurveTo((cols/2-2)*P,(rows*.6)*P,(cols/2+2)*P,(rows*.4)*P,(cols/2)*P,4.5*P); c.stroke();
+      // 陵墓
+      const mx=Math.floor(cols/2)-2; c.fillStyle="rgba(0,0,0,.4)"; c.fillRect((mx+.3)*P,1.35*P,4*P,3*P); c.fillStyle="#77736b"; c.fillRect(mx*P,1*P,4*P,3*P); c.fillStyle="#8f8a80"; c.beginPath(); c.moveTo(mx*P,1*P); c.lineTo((mx+2)*P,.3*P); c.lineTo((mx+4)*P,1*P); c.fill(); c.fillStyle="#2a2826"; c.fillRect((mx+1.4)*P,2.8*P,1.2*P,1.2*P); wl.rect(mx,0,4,4);
+      // 墓碑
+      for (let y=5;y<rows-1;y+=2) for (let x=1;x<cols-1;x+=2){ if (Math.abs(x+.5-cols/2)<2.2 || rnd()<.25) continue; const ox=(rnd()-.5)*.3;
+        c.fillStyle="rgba(0,0,0,.35)"; c.fillRect((x+.3+ox)*P,(y+.3)*P,.6*P,.5*P);
+        if (rnd()<.25){ c.fillStyle="#8d8a84"; c.fillRect((x+.4+ox)*P,(y+.05)*P,.18*P,.75*P); c.fillRect((x+.2+ox)*P,(y+.25)*P,.6*P,.16*P); }
+        else { c.fillStyle=mixHex("#9a968e","#6e6a63",rnd()); c.beginPath(); c.ellipse((x+.5+ox)*P,(y+.35)*P,P*.32,P*.2,0,Math.PI,0); c.lineTo((x+.82+ox)*P,(y+.75)*P); c.lineTo((x+.18+ox)*P,(y+.75)*P); c.fill(); }
+        c.fillStyle="rgba(80,60,40,.5)"; c.fillRect((x+.15+ox)*P,(y+.85)*P,.7*P,.15*P); }
+      // 枯樹
+      for (const [x,y] of [[1.5,2],[cols-2,2.5],[2,rows-2],[cols-2.5,rows-3]]) mpDeadTree(c,rnd,x*P,y*P,P*1.3);
+      // 鐵柵欄
+      c.strokeStyle="#222"; c.lineWidth=P*.06; c.strokeRect(.15*P,.15*P,W-.3*P,H-.3*P); c.fillStyle="#222"; for (let x=0;x<cols;x+=.5){ c.fillRect(x*P,.05*P,P*.06,P*.25); c.fillRect(x*P,H-.3*P,P*.06,P*.25); }
+      // 霧
+      for (let i=0;i<18;i++){ const x=rnd()*W, y=rnd()*H, r=P*(1.5+rnd()*2.5), g=c.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,"rgba(220,225,230,.22)"); g.addColorStop(1,"rgba(220,225,230,0)"); c.fillStyle=g; c.fillRect(x-r,y-r,r*2,r*2); }
+      return wl.out;
+    } },
+  { id:"snow", name:"雪原", cols:24, rows:18, desc:"冰湖、雪松與足跡",
+    draw(c, rnd, cols, rows, P){
+      const W=cols*P, H=rows*P; c.fillStyle="#e9eff4"; c.fillRect(0,0,W,H);
+      for (let i=0;i<cols*rows*.6;i++) mpBlob(c,rnd,rnd()*W,rnd()*H,P*(.5+rnd()*1.5),rnd()<.5?"rgba(160,185,210,.12)":"rgba(255,255,255,.4)",7);
+      const lx=cols*.62, ly=rows*.55; c.fillStyle="#cfe0ec"; c.beginPath(); c.ellipse(lx*P,ly*P,4.6*P,3.5*P,.2,0,7); c.fill(); const lg=c.createRadialGradient((lx-1)*P,(ly-1)*P,P,lx*P,ly*P,4.2*P); lg.addColorStop(0,"#b5d6ea"); lg.addColorStop(1,"#86b4d2"); c.fillStyle=lg; c.beginPath(); c.ellipse(lx*P,ly*P,4.2*P,3.1*P,.2,0,7); c.fill();
+      c.strokeStyle="rgba(255,255,255,.7)"; c.lineWidth=P*.04; for (let i=0;i<6;i++){ let x=lx+(rnd()-.5)*4, y=ly+(rnd()-.5)*3; c.beginPath(); c.moveTo(x*P,y*P); for (let j=0;j<4;j++){ x+=(rnd()-.5)*1.4; y+=(rnd()-.5)*1.4; c.lineTo(x*P,y*P); } c.stroke(); }
+      // 足跡
+      c.fillStyle="rgba(120,140,165,.45)"; let fx=0, fy=rows*.3; for (let i=0;i<40;i++){ fx+=.45; fy+=Math.sin(i*.3)*.15; if (Math.hypot((fx-lx)/1.1,fy-ly)<4.3) continue; c.beginPath(); c.ellipse(fx*P,(fy+(i%2?.18:-.18))*P,P*.1,P*.06,0,0,7); c.fill(); }
+      for (let i=0;i<cols*rows*.12;i++){ const x=rnd()*cols, y=rnd()*rows; if (Math.hypot((x-lx)/1.1,y-ly)<5 || (y>rows*.22&&y<rows*.38&&x<cols*.75)) continue; rnd()<.8? mpPine(c,rnd,x*P,y*P,P*(.6+rnd()*.5)) : mpRock(c,rnd,x*P,y*P,P*.3); }
+      return null;
+    } },
+  { id:"ship", name:"帆船甲板", cols:12, rows:28, walls:true, desc:"船身外是海，桅桿、大砲與舵輪",
+    draw(c, rnd, cols, rows, P){
+      const W=cols*P, H=rows*P, wl=mpWalls(cols,rows);
+      c.fillStyle="#1d4f72"; c.fillRect(0,0,W,H); c.strokeStyle="rgba(255,255,255,.18)"; c.lineWidth=P*.05; for (let i=0;i<cols*rows*.4;i++){ const x=rnd()*W, y=rnd()*H; c.beginPath(); c.arc(x,y,P*.4,Math.PI*1.1,Math.PI*1.9); c.stroke(); }
+      const hull=[[cols/2,.6],[cols-1.2,5],[cols-.9,rows-3],[cols-2,rows-.7],[2,rows-.7],[.9,rows-3],[1.2,5]];
+      const path=()=>{ c.beginPath(); hull.forEach(([x,y],i)=>i?c.lineTo(x*P,y*P):c.moveTo(x*P,y*P)); c.closePath(); };
+      c.save(); c.translate(P*.25,P*.3); path(); c.fillStyle="rgba(0,0,0,.4)"; c.fill(); c.restore();
+      path(); c.fillStyle="#5a3a22"; c.fill(); c.save(); path(); c.clip();
+      for (let x=0;x<cols;x+=.5){ c.fillStyle=mixHex("#a07a50","#7d5a36",rnd()); c.fillRect(x*P+1,0,.5*P-2,H); } c.fillStyle="rgba(0,0,0,.25)"; for (let x=0;x<cols;x+=.5) for (let y=rnd()*3;y<rows;y+=2+rnd()*3) c.fillRect(x*P,y*P,.5*P,P*.03);
+      c.restore(); path(); c.strokeStyle="#3a2414"; c.lineWidth=P*.3; c.stroke();
+      // 艙口、桅桿、大砲、舵輪
+      for (const [x,y] of [[cols/2-1,11],[cols/2-1,19]]){ c.fillStyle="#3c2818"; c.fillRect(x*P,y*P,2*P,2*P); c.strokeStyle="#6a4a2a"; c.lineWidth=P*.06; for (let i=0;i<=4;i++){ c.beginPath(); c.moveTo((x+i*.5)*P,y*P); c.lineTo((x+i*.5)*P,(y+2)*P); c.moveTo(x*P,(y+i*.5)*P); c.lineTo((x+2)*P,(y+i*.5)*P); c.stroke(); } }
+      for (const y of [8,16]){ const x=Math.floor(cols/2); c.fillStyle="rgba(0,0,0,.4)"; c.beginPath(); c.arc((x+.15)*P,(y+.2)*P,P*.42,0,7); c.fill(); c.fillStyle="#4a3018"; c.beginPath(); c.arc(x*P,y*P,P*.42,0,7); c.fill(); c.strokeStyle="#2a1a0c"; c.lineWidth=P*.06; c.stroke(); wl.set(x-1,y-1); wl.set(x,y-1); wl.set(x-1,y); wl.set(x,y); }
+      for (let y=7;y<rows-4;y+=3.5) for (const side of [-1,1]){ const x=side<0?1.6:cols-1.6; c.fillStyle="#222"; c.save(); c.translate(x*P,y*P); c.fillRect(side<0?-.6*P:-.3*P,-.2*P,.9*P,.4*P); c.fillStyle="#555"; c.fillRect(side<0?-.75*P:.45*P,-.12*P,.3*P,.24*P); c.restore(); }
+      const wx=cols/2, wy=rows-2.6; c.strokeStyle="#6b4424"; c.lineWidth=P*.12; c.beginPath(); c.arc(wx*P,wy*P,P*.6,0,7); c.stroke(); for (let i=0;i<8;i++){ const a=i/8*Math.PI*2; c.beginPath(); c.moveTo(wx*P,wy*P); c.lineTo((wx+Math.cos(a)*.85)*P,(wy+Math.sin(a)*.85)*P); c.stroke(); }
+      for (const [x,y] of [[2.2,12.5],[cols-2.6,21]]){ c.strokeStyle="#c8b080"; c.lineWidth=P*.08; for (let r=.1;r<.45;r+=.1){ c.beginPath(); c.arc(x*P,y*P,r*P,0,7); c.stroke(); } }
+      for (let y=0;y<rows;y++) for (let x=0;x<cols;x++) if (!mpInPoly(x+.5,y+.5,hull)) wl.set(x,y);
+      return wl.out;
     } },
 ];
 /* 畫出一張範本，回傳 {data, walls}；thumb 時用小尺寸 */
@@ -1490,7 +1729,7 @@ function presetCfg(p, seed){ // 產生要寫進房間的資料
 }
 async function applyPreset(id){
   const p=MAP_PRESETS.find(x=>x.id===id); if (!p || !S.isGM) return;
-  if (!await confirmBox(`套用「${p.name}」`, `格子會改成 ${p.cols}×${p.rows}，並換上新的底圖${p.draw&&p.id!=="road"&&p.id!=="forest"?"和牆壁":""}（原本的牆壁、揭露區會清掉）。棋子和範圍會保留，超出地圖的棋子會移進來。每次套用都會隨機產生不同的版本。`, "套用")) return;
+  if (!await confirmBox(`套用「${p.name}」`, `格子會改成 ${p.cols}×${p.rows}，並換上新的底圖${p.walls?"和牆壁":""}（原本的牆壁、揭露區會清掉）。棋子和範圍會保留，超出地圖的棋子會移進來。每次套用都會隨機產生不同的版本。`, "套用")) return;
   toast("繪製地圖中…");
   await new Promise(r=>setTimeout(r,30));
   try{
