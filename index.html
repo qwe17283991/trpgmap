@@ -117,15 +117,19 @@ input[type=color]{width:40px;height:34px;padding:0;border:1px solid var(--line);
 #modal{z-index:35}
 .crop-card{max-width:560px}
 .pat-card{max-width:480px}
+.fx-row{gap:6px}
+.btn.fx{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;font-size:13px;position:relative}
+.btn.fx.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink);font-weight:700}
+.fxdot{width:14px;height:14px;border-radius:3px;display:inline-block;flex:0 0 auto}
 .pat-grid{display:grid;gap:1px;background:#3a4644;border:1px solid #3a4644;border-radius:6px;overflow:hidden;touch-action:none;user-select:none;margin:8px auto;width:100%;max-width:min(100%,58vh)}
 .pat-grid div{aspect-ratio:1;background:#25302e;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;cursor:pointer}
-.pat-grid div.on{background:#d9483b}
+.pat-grid div.on{background:var(--fx,#d9483b)}
 .pat-grid div.me{background:#3f8f96;cursor:default}
 .pat-grid div.ax{background:#2c3836}
-.pat-grid div.ax.on{background:#d9483b}
+.pat-grid div.ax.on{background:var(--fx,#d9483b)}
 .pat-mini{display:inline-grid;gap:0;flex:0 0 auto;border:1px solid var(--line);background:#25302e}
 .pat-mini i{display:block;width:4px;height:4px}
-.pat-mini i.on{background:#d9483b}.pat-mini i.me{background:#3f8f96}
+.pat-mini i.on{background:var(--fx,#d9483b)}.pat-mini i.me{background:#3f8f96}
 .crop-wrap{display:flex;justify-content:center;background:#111;border-radius:8px;padding:6px;margin:8px 0;touch-action:none}
 #cropCv{display:block;touch-action:none;cursor:move}
 .tokthumb{width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--line);flex:0 0 auto}
@@ -580,6 +584,11 @@ function paint(){
   ctx.restore();
   renderSelbar();
 }
+const FX_COLORS=[["#d9483b","傷害"],["#3fae5a","治療"],["#8a5cd6","限制"],["#e0a526","增益"],["#4a90d9","其他"]];
+const fxName = c => (FX_COLORS.find(([h])=>h===(c||"").toLowerCase())||[])[1] || "自訂色";
+function fxSwatches(cur, act){ cur=(cur||"").toLowerCase();
+  return `<div class="row fx-row">${FX_COLORS.map(([h,n])=>`<button type="button" class="btn fx${cur===h?" on":""}" data-${act}="${h}" aria-pressed="${cur===h}"><span class="fxdot" style="background:${h}"></span>${n}</button>`).join("")}<label class="btn fx" title="自訂顏色"><span class="fxdot" style="background:${FX_COLORS.some(([h])=>h===cur)?"conic-gradient(red,yellow,lime,cyan,blue,magenta,red)":esc(cur)}"></span>自訂<input type="color" data-${act}-in value="${esc(/^#[0-9a-f]{6}$/.test(cur)?cur:"#d9483b")}" style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none"></label></div>`; }
+function setTplColor(id,c){ const t=S.templates[id]; if (!t || !canDeleteTpl(t) || !/^#[0-9a-f]{6}$/i.test(c)) return; putTemplate(id,{...t,color:c.toLowerCase()}); renderPanel(); }
 function hexA(hex,a){ const m=/^#?([0-9a-f]{6})$/i.exec(hex||""); if(!m) return `rgba(224,96,58,${a})`; const n=parseInt(m[1],16); return `rgba(${n>>16},${(n>>8)&255},${n&255},${a})`; }
 function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 function pill(x,y,text){
@@ -680,7 +689,7 @@ cv.addEventListener("pointerdown", e => {
     const pt=S.patterns[S.patSel]; if (!pt){ openPatPanel(); gesture=panG(e); return; }
     const tk=hitToken(wx,wy), tt=tk&&S.tokens[tk], f=tt?(FOOT[tt.size]||1):1;
     const ox = tt ? Math.floor(tt.x+f/2)+0.5 : Math.floor(wx)+0.5, oy = tt ? Math.floor(tt.y+f/2)+0.5 : Math.floor(wy)+0.5;
-    S.draft={shape:"pat", ox, oy, ang:S.patAng??-Math.PI/2, cells:pt.cells, name:pt.name, color:myColor()};
+    S.draft={shape:"pat", ox, oy, ang:S.patAng??-Math.PI/2, cells:pt.cells, name:pt.name, color:pt.color||FX_COLORS[0][0]};
     gesture={type:"tpl",sx:wx,sy:wy,moved:false}; draw(); return;
   }
   if (["circle","cone","line","rect"].includes(tool)){
@@ -843,11 +852,11 @@ function renderSelbar(){
     el.classList.add("open"); return;
   }
   const mp=movePrev();
-  const key = t ? ["t",S.sel,t.name,canControl(t),mp?mp.x+","+mp.y+","+t.x+","+t.y:""].join("|") : tp ? ["p",S.selTpl,tp.bind?tp.bind.tid:"",tp.len,tp.w,tp.h,tp.x1,tp.y1,canDeleteTpl(tp)].join("|") : "";
+  const key = t ? ["t",S.sel,t.name,canControl(t),mp?mp.x+","+mp.y+","+t.x+","+t.y:""].join("|") : tp ? ["p",S.selTpl,tp.bind?tp.bind.tid:"",tp.len,tp.w,tp.h,tp.x1,tp.y1,canDeleteTpl(tp),tp.color].join("|") : "";
   if (key===selbarKey) return; selbarKey=key;
   const el=$("#selbar");
   if (tp){ const ed=canDeleteTpl(tp), bn=tp.bind&&S.tokens[tp.bind.tid];
-    el.innerHTML=`<span class="nm">${esc(tplLabel(tp))}</span>${ed&&!bn?'<span class="hint">可拖曳</span>':""}${ed&&bn?`<button class="btn" data-sb="unbind">解除綁定</button>`:""}${ed?`<button class="btn warn" data-sb="deltpl">刪除</button>`:""}<button class="btn" data-sb="clear">取消</button>`;
+    el.innerHTML=`<span class="nm">${esc(tplLabel(tp))}</span>${ed&&!bn?'<span class="hint">可拖曳</span>':""}${ed&&bn?`<button class="btn" data-sb="unbind">解除綁定</button>`:""}${ed?`<button class="btn fx" data-sb="tplColor" title="換顏色（點擊切換）"><span class="fxdot" style="background:${esc(tp.color||"#e0603a")}"></span>${esc(fxName(tp.color))}</button>`:""}${ed?`<button class="btn warn" data-sb="deltpl">刪除</button>`:""}<button class="btn" data-sb="clear">取消</button>`;
     el.classList.add("open"); return; }
   if (!t){ el.classList.remove("open"); el.innerHTML=""; return; }
   if (mp){ el.innerHTML=`<span class="nm">${esc(t.name)}</span><span class="hint">移動 ${fmtM(gridDist(mp.x-t.x,mp.y-t.y))}？再點一次同一格確認</span><button class="btn primary" data-sb="mvGo">確認移動</button><button class="btn" data-sb="mvNo">不移動</button>`; el.classList.add("open"); return; }
@@ -862,6 +871,7 @@ $("#selbar").addEventListener("click", e=>{ const b=e.target.closest("button"); 
   if (b.dataset.sb==="deltpl" && canDeleteTpl(S.templates[S.selTpl])){ delTemplate(S.selTpl); S.selTpl=null; renderPanel(); }
   if (b.dataset.sb==="clear") clearSel();
   if (b.dataset.sb==="mvGo") doMovePrev();
+  if (b.dataset.sb==="tplColor" && S.selTpl){ const cur=(S.templates[S.selTpl]?.color||"").toLowerCase(), i=FX_COLORS.findIndex(([h])=>h===cur); setTplColor(S.selTpl, FX_COLORS[(i+1)%FX_COLORS.length][0]); draw(); }
   if (b.dataset.sb==="mvNo"){ S.movePrev=null; draw(); } });
 $("#zoom").addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b) return;
   const r=cv.getBoundingClientRect(), ns=clamp(S.view.s*(+b.dataset.z),8,140), q=ns/S.view.s, cx=r.width/2, cy=r.height/2;
@@ -972,6 +982,7 @@ function panelToken(){
   if (S.selTpl && S.templates[S.selTpl]){
     const t=S.templates[S.selTpl], bn=t.bind&&S.tokens[t.bind.tid], ed=canDeleteTpl(t);
     h+=`<h3>選取的範圍</h3><div class="item">${tokDot(t)}<span class="nm">${esc(tplLabel(t))}${bn?`<br><span class="meta">綁定在「${esc(bn.name)}」</span>`:""}</span>${ed&&bn?`<button class="btn" data-act="unbindTpl">解除綁定</button>`:""}${ed?`<button class="btn warn" data-act="delTpl">刪除</button>`:""}</div>
+    ${ed?`<h3>效果顏色</h3>${fxSwatches(t.color,"tc")}`:""}
     ${ed?`<p class="hint">拖曳範圍可移動。拖白色圓點可旋轉（圓形是調整半徑，錐形和直線也能拉長縮短）。把範圍拖到棋子上停 3 秒就會綁定，之後跟著棋子走。</p>`:""}`;
   }
   const t=S.sel && S.tokens[S.sel];
@@ -1084,6 +1095,8 @@ function panelSaves(){
 const body=$("#sheetBody");
 body.addEventListener("focusout", ()=>{ setTimeout(()=>{ if (panelDirty) renderPanel(); }, 0); });
 body.addEventListener("input", e => { if (e.target.id==="muVolP"){ setVol(+e.target.value); const v=$("#muVol"); if(v) v.value=M.vol; } });
+body.addEventListener("click", e => { const b=e.target.closest("button[data-tc]"); if (b && S.selTpl){ setTplColor(S.selTpl,b.dataset.tc); } });
+body.addEventListener("change", e => { if (e.target.matches("[data-tc-in]") && S.selTpl) setTplColor(S.selTpl,e.target.value); });
 body.addEventListener("change", e => {
   const id=e.target.id, t=S.sel&&S.tokens[S.sel];
   if (t){
@@ -1301,9 +1314,9 @@ async function uploadTokImg(tid, file){
 
 /* ============ 自訂範圍 ============ */
 const PAT_R = 8;
-function patMini(cells, r){
+function patMini(cells, r, color){
   const set=new Set((cells||"").split(";")); r=Math.min(PAT_R, Math.max(2, r||patReach(cells))); const n=2*r+1;
-  let h=`<span class="pat-mini" style="grid-template-columns:repeat(${n},4px)" aria-hidden="true">`;
+  let h=`<span class="pat-mini" style="grid-template-columns:repeat(${n},4px);--fx:${esc(color||"#d9483b")}" aria-hidden="true">`;
   for (let y=-r;y<=r;y++) for (let x=-r;x<=r;x++) h+=`<i class="${x===0&&y===0?"me":set.has(x+","+y)?"on":""}"></i>`;
   return h+"</span>";
 }
@@ -1316,7 +1329,7 @@ function panelPats(){
   h+=`<h3>範圍清單</h3>`;
   if (!list.length) return h+`<p class="empty">還沒有。按上面的按鈕畫一個。</p>`;
   h+=`<div class="list">`+list.map(([id,p])=>{ const on=S.patSel===id && S.tool==="pat";
-    return `<div class="item" style="${on?"border:2px solid var(--brass)":""}">${patMini(p.cells)}<span class="nm">${esc(p.name)}<br><span class="meta">${patList(p.cells).length} 格 · ${esc(p.byName||"")}</span></span><button class="btn ${on?"":"primary"}" data-act="patUse" data-id="${id}">${on?"使用中":"使用"}</button>${canEditPat(p)?`<button class="btn" data-act="patEdit" data-id="${id}">編輯</button><button class="btn warn" data-act="patDel" data-id="${id}" aria-label="刪除">刪</button>`:`<button class="btn" data-act="patCopy" data-id="${id}">複製</button>`}</div>`; }).join("")+`</div>`;
+    return `<div class="item" style="${on?"border:2px solid var(--brass)":""}">${patMini(p.cells,0,p.color)}<span class="nm">${esc(p.name)}<br><span class="meta">${esc(fxName(p.color||"#d9483b"))} · ${patList(p.cells).length} 格 · ${esc(p.byName||"")}</span></span><button class="btn ${on?"":"primary"}" data-act="patUse" data-id="${id}">${on?"使用中":"使用"}</button>${canEditPat(p)?`<button class="btn" data-act="patEdit" data-id="${id}">編輯</button><button class="btn warn" data-act="patDel" data-id="${id}" aria-label="刪除">刪</button>`:`<button class="btn" data-act="patCopy" data-id="${id}">複製</button>`}</div>`; }).join("")+`</div>`;
   h+=`<p class="hint">清單整個房間共用，大家都能使用；只有建立的人和 GM 能修改或刪除，其他人可以「複製」一份再改。</p>`;
   return h;
 }
@@ -1325,7 +1338,7 @@ async function patPanelClick(a, id){
   if (a==="patNew"){ const r=await editPattern(null); if (r) usePat(r); }
   if (a==="patUse" && p) usePat(id);
   if (a==="patEdit" && canEditPat(p)) await editPattern(id);
-  if (a==="patCopy" && p){ const nid=uid(); S.patterns[nid]={name:(p.name+" 副本").slice(0,24), cells:p.cells, by:S.me, byName:S.myName||(S.isGM?"GM":""), at:Date.now()}; w(ref(`${R}/patterns/${nid}`).set(S.patterns[nid])); await editPattern(nid); }
+  if (a==="patCopy" && p){ const nid=uid(); S.patterns[nid]={name:(p.name+" 副本").slice(0,24), cells:p.cells, color:p.color||"", by:S.me, byName:S.myName||(S.isGM?"GM":""), at:Date.now()}; w(ref(`${R}/patterns/${nid}`).set(S.patterns[nid])); await editPattern(nid); }
   if (a==="patDel" && canEditPat(p)){ if (!await confirmBox("刪除自訂範圍",`刪除「${p.name}」？地圖上已放好的範圍不會受影響。`,"刪除")) return;
     delete S.patterns[id]; w(ref(`${R}/patterns/${id}`).remove()); if (S.patSel===id){ S.patSel=""; lsSet("bm-pat",null); } renderTools(); }
   renderPanel();
@@ -1334,19 +1347,24 @@ function usePat(id){ S.patSel=id; lsSet("bm-pat",id); S.tool="pat"; renderTools(
   if (window.innerWidth<700) closeSheet();
   toast(`使用「${S.patterns[id]?.name||""}」：點格子或自己的棋子放置，按住拖曳轉方向`); }
 function editPattern(id){
-  const p=id?S.patterns[id]:null, cells=new Set(p?(p.cells||"").split(";").filter(Boolean):[]);
+  const p=id?S.patterns[id]:null, cells=new Set(p?(p.cells||"").split(";").filter(Boolean):[]); let color=(p&&p.color)||FX_COLORS[0][0];
   return new Promise(res=>{
     const m=$("#modal"), n=2*PAT_R+1;
     let g=""; for (let y=-PAT_R;y<=PAT_R;y++) for (let x=-PAT_R;x<=PAT_R;x++){ const k=x+","+y, me=!x&&!y;
       g+=`<div data-k="${k}" class="${me?"me":(cells.has(k)?"on ":"")+(!x||!y?"ax":"")}">${me?"★":(!x&&y===-PAT_R?"↑":"")}</div>`; }
     m.innerHTML=`<div class="gate-card pat-card"><h2>${p?"編輯":"新增"}自訂範圍</h2>
       <p class="hint">★ 是自己（施放的中心），↑ 是面對的方向。點或拖曳格子塗紅，再點一次取消。每格 ${S.cfg.meters} 米。</p>
+      <div class="fld"><span>效果顏色</span>${fxSwatches(color,"pc")}</div>
       <label class="fld"><span>名稱</span><input type="text" id="patName" maxlength="24" value="${esc(p?p.name:"")}" placeholder="例如：三叉衝擊" autocomplete="off"></label>
       <div class="pat-grid" id="patGrid" style="grid-template-columns:repeat(${n},1fr)">${g}</div>
       <p class="hint" id="patInfo"></p><p class="err" id="patErr"></p>
       <div class="row" style="justify-content:space-between"><button class="btn" data-p="clear">清空</button><span><button class="btn" data-p="0">取消</button> <button class="btn primary" data-p="1">儲存</button></span></div></div>`;
     m.classList.add("open");
-    const grid=m.querySelector("#patGrid"), info=()=>{ m.querySelector("#patInfo").textContent=`已選 ${cells.size} 格`; };
+    const grid=m.querySelector("#patGrid");
+    const setColor=c=>{ color=c.toLowerCase(); grid.style.setProperty("--fx",color); const row=m.querySelector(".fx-row"); row.outerHTML=fxSwatches(color,"pc"); };
+    grid.style.setProperty("--fx",color);
+    m.addEventListener("input", e=>{ if (e.target.matches("[data-pc-in]")) setColor(e.target.value); });
+    const info=()=>{ m.querySelector("#patInfo").textContent=`已選 ${cells.size} 格`; };
     info();
     let paint=null;
     const cellAt=e=>{ const el=document.elementFromPoint(e.clientX,e.clientY); return el && el.parentNode===grid && el.dataset.k && el.dataset.k!=="0,0" ? el : null; };
@@ -1355,13 +1373,15 @@ function editPattern(id){
     grid.onpointermove=e=>{ if (paint===null) return; const el=cellAt(e); if (el && cells.has(el.dataset.k)!==paint) setCell(el,paint); };
     grid.onpointerup=grid.onpointercancel=()=>{ paint=null; };
     const finish=v=>{ m.classList.remove("open"); m.innerHTML=""; m.onclick=null; m.onkeydown=null; res(v); };
-    m.onclick=e=>{ const b=e.target.closest("button[data-p]"); if(!b) return; const c=b.dataset.p;
+    m.onclick=e=>{ const sw=e.target.closest("button[data-pc]"); if (sw){ setColor(sw.dataset.pc); return; }
+      const lb=e.target.closest("label.fx"); if (lb && e.target.tagName!=="INPUT"){ e.preventDefault(); lb.querySelector("input").click(); return; }
+      const b=e.target.closest("button[data-p]"); if(!b) return; const c=b.dataset.p;
       if (c==="0") return finish(null);
       if (c==="clear"){ cells.clear(); grid.querySelectorAll(".on").forEach(el=>el.classList.remove("on")); info(); return; }
       const name=m.querySelector("#patName").value.trim().slice(0,24);
       if (!name){ m.querySelector("#patErr").textContent="請取個名稱"; m.querySelector("#patName").focus(); return; }
       if (!cells.size){ m.querySelector("#patErr").textContent="至少要塗一格"; return; }
-      const nid=id||uid(), data={...(p||{}), name, cells:[...cells].join(";"), by:p?p.by:S.me, byName:p?(p.byName||""):(S.myName||(S.isGM?"GM":"")), at:p?p.at:Date.now()};
+      const nid=id||uid(), data={...(p||{}), name, cells:[...cells].join(";"), color, by:p?p.by:S.me, byName:p?(p.byName||""):(S.myName||(S.isGM?"GM":"")), at:p?p.at:Date.now()};
       S.patterns[nid]=data; w(ref(`${R}/patterns/${nid}`).set(data)); renderTools(); toast(`已儲存「${name}」`); finish(nid);
     };
     m.onkeydown=e=>{ if(e.key==="Escape") finish(null); };
