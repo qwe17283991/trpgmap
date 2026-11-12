@@ -117,6 +117,12 @@ input[type=color]{width:40px;height:34px;padding:0;border:1px solid var(--line);
 #modal{z-index:35}
 .crop-card{max-width:560px}
 .pat-card{max-width:480px}
+.preset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px;margin:6px 0}
+.preset{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font:inherit;cursor:pointer;text-align:center}
+.preset:hover{border-color:var(--brass)}
+.preset img,.preset-blank{max-width:100%;max-height:92px;border-radius:4px;display:block}
+.preset-blank{height:92px;background:repeating-linear-gradient(0deg,#2b3a37 0 7px,#3b4c48 7px 8px),#2b3a37;background-blend-mode:normal}
+.preset b{font-size:13px}.preset span{font-size:11px;color:var(--ink-2);line-height:1.3}
 .fx-row{gap:6px}
 .btn.fx{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;font-size:13px;position:relative}
 .btn.fx.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink);font-weight:700}
@@ -1061,7 +1067,8 @@ function panelInit(){
 }
 function panelMap(){
   const c=S.cfg;
-  return `<h3>格子</h3>
+  return `<h3>地圖範本</h3><p class="hint">點一張套用：會改變格子大小、換上程式畫的底圖，地城類還會自動設好牆壁（開戰爭迷霧時擋視線）。</p>${presetCards("preset")}
+  <h3>格子</h3>
   <div class="row"><label for="mCols">寬</label><input type="number" inputmode="numeric" class="num" id="mCols" min="4" max="${MAX_GRID}" value="${c.cols}"><label for="mRows" style="min-width:auto">高</label><input type="number" inputmode="numeric" class="num" id="mRows" min="4" max="${MAX_GRID}" value="${c.rows}"><span class="hint">格</span></div>
   <div class="row"><label for="mMeters">每格</label><input type="number" inputmode="decimal" class="num" id="mMeters" min="0.5" max="100" step="0.5" value="${c.meters}"><span class="hint">米（本規則預設 2 米）</span></div>
   <div class="row"><button class="btn" data-act="applyGrid">套用格子大小</button></div>
@@ -1095,6 +1102,7 @@ function panelSaves(){
 const body=$("#sheetBody");
 body.addEventListener("focusout", ()=>{ setTimeout(()=>{ if (panelDirty) renderPanel(); }, 0); });
 body.addEventListener("input", e => { if (e.target.id==="muVolP"){ setVol(+e.target.value); const v=$("#muVol"); if(v) v.value=M.vol; } });
+body.addEventListener("click", e => { const b=e.target.closest("button[data-preset]"); if (b) applyPreset(b.dataset.preset); });
 body.addEventListener("click", e => { const b=e.target.closest("button[data-tc]"); if (b && S.selTpl){ setTplColor(S.selTpl,b.dataset.tc); } });
 body.addEventListener("change", e => { if (e.target.matches("[data-tc-in]") && S.selTpl) setTplColor(S.selTpl,e.target.value); });
 body.addEventListener("change", e => {
@@ -1310,6 +1318,191 @@ async function uploadTokImg(tid, file){
     const id=uid(); await ref(`${R}/images/${id}`).set({data, at:Date.now(), kind:"token"});
     const im=new Image(); im.onload=()=>{ tokImgs[R+"/"+id]={img:im,src:data}; if (S.tokens[tid]) patchToken(tid,{img:id}); renderPanel(); toast(`棋子圖片已更新（${Math.round(data.length*0.75/1024)} KB）`); }; im.src=data;
   }catch(err){ onWriteError(err); }
+}
+
+/* ============ 地圖範本（程式繪製的底圖） ============ */
+function mulberry(a){ return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function shade(hex, k){ const n=parseInt(hex.slice(1),16); const f=v=>Math.max(0,Math.min(255,Math.round(v*k))); return `rgb(${f(n>>16)},${f((n>>8)&255)},${f(n&255)})`; }
+function mixHex(a,b,t){ const A=parseInt(a.slice(1),16), B=parseInt(b.slice(1),16), m=s=>Math.round(((A>>s)&255)*(1-t)+((B>>s)&255)*t); return `rgb(${m(16)},${m(8)},${m(0)})`; }
+/* 小工具 */
+function mpSpeckle(c, rnd, x, y, w, h, color, n, size){ c.fillStyle=color; for (let i=0;i<n;i++){ const s=size*(0.5+rnd()); c.fillRect(x+rnd()*w, y+rnd()*h, s, s); } }
+function mpBlob(c, rnd, cx, cy, r, color, k=7){ c.fillStyle=color; c.beginPath(); for (let i=0;i<=k;i++){ const a=i/k*Math.PI*2, rr=r*(0.75+rnd()*0.4); const x=cx+Math.cos(a)*rr, y=cy+Math.sin(a)*rr; i?c.lineTo(x,y):c.moveTo(x,y); } c.closePath(); c.fill(); }
+function mpTree(c, rnd, x, y, r){
+  c.fillStyle="rgba(0,0,0,.28)"; c.beginPath(); c.ellipse(x+r*.25, y+r*.3, r*1.05, r*.9, 0, 0, 7); c.fill();
+  const g=["#2f5a26","#3a6b2c","#29502a"][Math.floor(rnd()*3)];
+  for (let i=0;i<5;i++) mpBlob(c, rnd, x+(rnd()-.5)*r*.7, y+(rnd()-.5)*r*.7, r*(0.55+rnd()*0.3), g, 9);
+  for (let i=0;i<3;i++) mpBlob(c, rnd, x-r*.2+(rnd()-.5)*r*.4, y-r*.25+(rnd()-.5)*r*.4, r*(0.25+rnd()*0.15), "rgba(140,190,90,.35)", 8);
+}
+function mpRock(c, rnd, x, y, r){ c.fillStyle="rgba(0,0,0,.3)"; c.beginPath(); c.ellipse(x+r*.2,y+r*.25,r,r*.8,0,0,7); c.fill(); mpBlob(c,rnd,x,y,r,"#7d7a72",7); mpBlob(c,rnd,x-r*.2,y-r*.25,r*.5,"rgba(255,255,255,.18)",6); }
+function mpGrass(c, rnd, W, H, P, base){
+  c.fillStyle=base; c.fillRect(0,0,W,H);
+  for (let i=0;i<W*H/(P*P)*3;i++) mpBlob(c, rnd, rnd()*W, rnd()*H, P*(0.4+rnd()*1.2), rnd()<.5?"rgba(255,255,200,.05)":"rgba(0,40,0,.07)", 6);
+  c.lineWidth=Math.max(1,P/30); for (let i=0;i<W*H/(P*P)*14;i++){ const x=rnd()*W, y=rnd()*H; c.strokeStyle=rnd()<.5?"rgba(160,200,100,.35)":"rgba(30,60,20,.35)"; c.beginPath(); c.moveTo(x,y); c.lineTo(x+(rnd()-.5)*P*.15, y-P*.15); c.stroke(); }
+}
+/* 地城 / 洞穴共用：m[y][x]=1 是地板 */
+function mpDrawCells(c, rnd, m, cols, rows, P, rock, floor, tiles){
+  c.fillStyle=rock; c.fillRect(0,0,cols*P,rows*P);
+  mpSpeckle(c, rnd, 0,0,cols*P,rows*P, "rgba(255,255,255,.05)", cols*rows*4, P*.12);
+  mpSpeckle(c, rnd, 0,0,cols*P,rows*P, "rgba(0,0,0,.25)", cols*rows*4, P*.15);
+  for (let y=0;y<rows;y++) for (let x=0;x<cols;x++) if (m[y][x]){
+    c.fillStyle=mixHex(floor, "#000000", rnd()*0.12); c.fillRect(x*P,y*P,P,P);
+    if (tiles){ c.strokeStyle="rgba(0,0,0,.25)"; c.lineWidth=Math.max(1,P/32); c.strokeRect(x*P+.5,y*P+.5,P-1,P-1);
+      if (rnd()<.15){ c.strokeStyle="rgba(0,0,0,.3)"; c.beginPath(); c.moveTo(x*P+rnd()*P,y*P+rnd()*P); c.lineTo(x*P+rnd()*P,y*P+rnd()*P); c.stroke(); } }
+    else mpSpeckle(c, rnd, x*P,y*P,P,P, "rgba(0,0,0,.18)", 6, P*.12);
+  }
+  // 牆邊陰影與輪廓
+  for (let y=0;y<rows;y++) for (let x=0;x<cols;x++) if (m[y][x]){
+    const g=(dx,dy)=>{ const yy=y+dy, xx=x+dx; return yy<0||xx<0||yy>=rows||xx>=cols||!m[yy][xx]; };
+    c.fillStyle="rgba(0,0,0,.35)";
+    if (g(0,-1)) c.fillRect(x*P,y*P,P,P*.22);
+    if (g(-1,0)) c.fillRect(x*P,y*P,P*.16,P);
+    c.fillStyle="rgba(255,255,255,.08)";
+    if (g(0,1)) c.fillRect(x*P,y*P+P*.9,P,P*.1);
+  }
+}
+const MAP_PRESETS = [
+  { id:"blank", name:"空白長廊", cols:12, rows:40, desc:"沒有底圖，直向長條" },
+  { id:"road", name:"山道", cols:12, rows:40, desc:"蜿蜒道路、小溪與木橋",
+    draw(c, rnd, cols, rows, P){
+      const W=cols*P, H=rows*P; mpGrass(c, rnd, W, H, P, "#557d3c");
+      const cx=y=>cols/2+Math.sin(y*0.22+rnd()*0)*2.2+Math.sin(y*0.07)*1.2;
+      const by=Math.floor(rows*0.55);
+      // 小溪
+      c.fillStyle="#3b6f8f"; c.beginPath(); for (let x=0;x<=cols;x+=0.25){ const y=by+Math.sin(x*0.8)*0.5; c.lineTo(x*P,(y-0.6)*P); } for (let x=cols;x>=0;x-=0.25){ const y=by+Math.sin(x*0.8)*0.5; c.lineTo(x*P,(y+0.6)*P); } c.fill();
+      c.strokeStyle="rgba(255,255,255,.25)"; c.lineWidth=P*.05; for (let i=0;i<cols*2;i++){ const x=rnd()*cols, y=by+Math.sin(x*0.8)*0.5+(rnd()-.5)*0.8; c.beginPath(); c.moveTo(x*P,y*P); c.lineTo((x+0.3)*P,y*P); c.stroke(); }
+      // 道路
+      c.fillStyle="#9b7d55"; c.beginPath(); for (let y=0;y<=rows;y+=0.25) c.lineTo((cx(y)-1.8)*P, y*P); for (let y=rows;y>=0;y-=0.25) c.lineTo((cx(y)+1.8)*P, y*P); c.fill();
+      mpSpeckle(c, rnd, 0,0,W,H, "rgba(0,0,0,0)", 0, 1);
+      for (let y=0;y<rows;y+=0.2){ const x=cx(y); mpSpeckle(c, rnd, (x-1.6)*P, y*P, 3.2*P, .2*P, "rgba(60,40,20,.25)", 3, P*.1); mpSpeckle(c, rnd, (x-1.6)*P, y*P, 3.2*P, .2*P, "rgba(255,240,200,.18)", 2, P*.08); }
+      c.strokeStyle="rgba(70,50,30,.35)"; c.lineWidth=P*.08; for (const off of [-0.7,0.7]){ c.beginPath(); for (let y=0;y<=rows;y+=0.25) c.lineTo((cx(y)+off)*P, y*P); c.stroke(); }
+      // 木橋
+      const bx=cx(by); c.fillStyle="#6b4a2a"; c.fillRect((bx-2)*P,(by-1)*P,4*P,2*P);
+      c.strokeStyle="rgba(0,0,0,.35)"; c.lineWidth=P*.04; for (let x=bx-2;x<=bx+2;x+=0.5){ c.beginPath(); c.moveTo(x*P,(by-1)*P); c.lineTo(x*P,(by+1)*P); c.stroke(); }
+      c.fillStyle="#4a321c"; c.fillRect((bx-2.1)*P,(by-1.1)*P,4.2*P,.2*P); c.fillRect((bx-2.1)*P,(by+.9)*P,4.2*P,.2*P);
+      // 路邊樹與石頭
+      for (let i=0;i<rows*1.4;i++){ const y=rnd()*rows, side=rnd()<.5?-1:1, x=cx(y)+side*(2.6+rnd()*3); if (x<0.3||x>cols-0.3||Math.abs(y-by)<1.3) continue; rnd()<.7? mpTree(c,rnd,x*P,y*P,P*(0.7+rnd()*0.5)) : mpRock(c,rnd,x*P,y*P,P*(0.25+rnd()*0.2)); }
+      return null;
+    } },
+  { id:"forest", name:"森林空地", cols:24, rows:18, desc:"林間空地，中間有營火",
+    draw(c, rnd, cols, rows, P){
+      const W=cols*P, H=rows*P, mx=cols/2, my=rows/2; mpGrass(c, rnd, W, H, P, "#4d7535");
+      const g=c.createRadialGradient(mx*P,my*P,P,mx*P,my*P,P*7); g.addColorStop(0,"rgba(200,210,120,.35)"); g.addColorStop(1,"rgba(200,210,120,0)"); c.fillStyle=g; c.fillRect(0,0,W,H);
+      // 小徑
+      c.strokeStyle="#8f7650"; c.lineCap="round"; c.lineWidth=P*1.4; c.beginPath(); c.moveTo(0,(my+3)*P); c.bezierCurveTo((mx-6)*P,(my+4)*P,(mx-4)*P,(my+1)*P,mx*P,my*P); c.bezierCurveTo((mx+5)*P,(my-1)*P,(mx+7)*P,(my-6)*P,(cols-3)*P,0); c.stroke();
+      // 營火
+      c.fillStyle="#6b6660"; for (let i=0;i<9;i++){ const a=i/9*Math.PI*2; mpRock(c,rnd,(mx+Math.cos(a)*.75)*P,(my+Math.sin(a)*.75)*P,P*.17); }
+      const f=c.createRadialGradient(mx*P,my*P,0,mx*P,my*P,P*.6); f.addColorStop(0,"#ffe08a"); f.addColorStop(.5,"#f08a2c"); f.addColorStop(1,"rgba(180,50,20,0)"); c.fillStyle=f; c.beginPath(); c.arc(mx*P,my*P,P*.6,0,7); c.fill();
+      // 倒木
+      c.save(); c.translate((mx+2.6)*P,(my+2)*P); c.rotate(-0.3); c.fillStyle="#5e4128"; c.fillRect(-1.6*P,-.25*P,3.2*P,.5*P); c.fillStyle="#8a6a46"; c.beginPath(); c.ellipse(1.6*P,0,.12*P,.25*P,0,0,7); c.fill(); c.restore();
+      // 樹林：離中心越遠越密
+      for (let i=0;i<cols*rows*0.55;i++){ const x=rnd()*cols, y=rnd()*rows, d=Math.hypot((x-mx)/1.3,y-my); if (d<5.2+rnd()*1.5) continue; mpTree(c,rnd,x*P,y*P,P*(0.7+rnd()*0.6)); }
+      for (let i=0;i<20;i++){ const a=rnd()*7, d=3+rnd()*2.5; mpBlob(c,rnd,(mx+Math.cos(a)*d*1.3)*P,(my+Math.sin(a)*d)*P,P*.3,"#3d6a2c",7); }
+      return null;
+    } },
+  { id:"dungeon", name:"地城", cols:24, rows:24, desc:"石室與走廊，自動設好牆壁",
+    draw(c, rnd, cols, rows, P){
+      const m=Array.from({length:rows},()=>Array(cols).fill(0)), rooms=[];
+      for (let t=0;t<200 && rooms.length<8;t++){ const w=3+Math.floor(rnd()*4), h=3+Math.floor(rnd()*4), x=1+Math.floor(rnd()*(cols-w-2)), y=1+Math.floor(rnd()*(rows-h-2));
+        if (rooms.some(r=>x<r.x+r.w+1&&x+w+1>r.x&&y<r.y+r.h+1&&y+h+1>r.y)) continue; rooms.push({x,y,w,h}); }
+      rooms.sort((a,b)=>(a.x+a.y)-(b.x+b.y));
+      for (const r of rooms) for (let y=r.y;y<r.y+r.h;y++) for (let x=r.x;x<r.x+r.w;x++) m[y][x]=1;
+      const ctr=r=>[Math.floor(r.x+r.w/2),Math.floor(r.y+r.h/2)];
+      for (let i=1;i<rooms.length;i++){ let [x,y]=ctr(rooms[i-1]); const [x2,y2]=ctr(rooms[i]); const hf=rnd()<.5;
+        if (hf){ while(x!==x2){ m[y][x]=1; x+=Math.sign(x2-x); } while(y!==y2){ m[y][x]=1; y+=Math.sign(y2-y); } }
+        else { while(y!==y2){ m[y][x]=1; y+=Math.sign(y2-y); } while(x!==x2){ m[y][x]=1; x+=Math.sign(x2-x); } } m[y][x]=1; }
+      mpDrawCells(c, rnd, m, cols, rows, P, "#26252b", "#8a867c", true);
+      // 裝飾：火把、碎石、血跡
+      for (const r of rooms){ if (rnd()<.7){ const tx=(r.x+.5+Math.floor(rnd()*r.w))*P, ty=(r.y+.2)*P; const g=c.createRadialGradient(tx,ty,0,tx,ty,P*1.8); g.addColorStop(0,"rgba(255,190,90,.45)"); g.addColorStop(1,"rgba(255,190,90,0)"); c.fillStyle=g; c.fillRect(tx-2*P,ty-2*P,4*P,4*P); c.fillStyle="#ffcf6a"; c.beginPath(); c.arc(tx,ty,P*.1,0,7); c.fill(); }
+        for (let i=0;i<3;i++) mpSpeckle(c,rnd,r.x*P,r.y*P,r.w*P,r.h*P,"rgba(60,55,50,.6)",4,P*.1);
+        if (rnd()<.35) mpBlob(c,rnd,(r.x+rnd()*r.w)*P,(r.y+rnd()*r.h)*P,P*.3,"rgba(110,20,20,.35)",8); }
+      return m.flat().map(v=>v?0:1);
+    } },
+  { id:"cave", name:"洞穴", cols:24, rows:24, desc:"天然岩洞，自動設好牆壁",
+    draw(c, rnd, cols, rows, P){
+      let m, best=[];
+      for (let tries=0; tries<8 && best.length<cols*rows*0.38; tries++){
+      m=Array.from({length:rows},(_,y)=>Array.from({length:cols},(_,x)=> (x===0||y===0||x===cols-1||y===rows-1)?0:(rnd()<0.6?1:0)));
+      for (let it=0;it<5;it++){ const n=m.map(r=>r.slice());
+        for (let y=1;y<rows-1;y++) for (let x=1;x<cols-1;x++){ let k=0; for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++) if (!m[y+dy][x+dx]) k++; n[y][x]= k>=5?0:1; } m=n; }
+      // 只留最大的連通區
+      const seen=Array.from({length:rows},()=>Array(cols).fill(0)); best=[];
+      for (let y=0;y<rows;y++) for (let x=0;x<cols;x++) if (m[y][x] && !seen[y][x]){ const comp=[], st=[[x,y]]; seen[y][x]=1;
+        while(st.length){ const [a,b]=st.pop(); comp.push([a,b]); for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const xx=a+dx, yy=b+dy; if (m[yy]&&m[yy][xx]&&!seen[yy][xx]){ seen[yy][xx]=1; st.push([xx,yy]); } } }
+        if (comp.length>best.length) best=comp; }
+      }
+      m=m.map(r=>r.map(()=>0)); for (const [x,y] of best) m[y][x]=1;
+      mpDrawCells(c, rnd, m, cols, rows, P, "#3b332b", "#6f6352", false);
+      for (const [x,y] of best){ if (rnd()<.05) mpRock(c,rnd,(x+.5)*P,(y+.5)*P,P*.2); if (rnd()<.03) mpBlob(c,rnd,(x+.5)*P,(y+.5)*P,P*.45,"rgba(70,120,140,.5)",8); if (rnd()<.04){ c.fillStyle="rgba(150,220,200,.55)"; c.beginPath(); c.arc((x+rnd())*P,(y+rnd())*P,P*.06,0,7); c.fill(); } }
+      return m.flat().map(v=>v?0:1);
+    } },
+  { id:"tavern", name:"酒館", cols:16, rows:12, desc:"吧台、桌椅與壁爐",
+    draw(c, rnd, cols, rows, P){
+      const W=cols*P, H=rows*P; c.fillStyle="#3a3631"; c.fillRect(0,0,W,H);
+      // 木地板
+      for (let y=1;y<rows-1;y+=0.5){ for (let x=1;x<cols-1;){ const len=1.5+rnd()*2.5, l=Math.min(len,cols-1-x); c.fillStyle=mixHex("#8a5f38","#5d3d22",rnd()*0.5); c.fillRect(x*P,y*P,l*P,P*.5); c.fillStyle="rgba(0,0,0,.35)"; c.fillRect(x*P,y*P+P*.47,l*P,P*.03); c.fillRect((x+l)*P-P*.03,y*P,P*.03,P*.5); x+=l; } }
+      // 石牆
+      for (let y=0;y<rows;y++) for (let x=0;x<cols;x++) if (x===0||y===0||x===cols-1||y===rows-1){ c.fillStyle=mixHex("#7a756c","#4d4943",rnd()*0.6); c.fillRect(x*P+1,y*P+1,P-2,P-2); }
+      const door=Math.floor(cols/2); c.fillStyle="#6b4a2a"; c.fillRect((door-.0)*P,(rows-1)*P,P*2,P); c.fillStyle="rgba(0,0,0,.4)"; c.fillRect(door*P+P*.97,(rows-1)*P,P*.06,P);
+      // 吧台
+      c.fillStyle="rgba(0,0,0,.35)"; c.fillRect(2*P+P*.15,2*P+P*.15,7*P,P); c.fillStyle="#5a3a20"; c.fillRect(2*P,2*P,7*P,P); c.fillStyle="#7c5532"; c.fillRect(2*P,2*P,7*P,P*.25);
+      for (let i=0;i<6;i++){ c.fillStyle=["#8a2b2b","#2b5a8a","#b8902b"][i%3]; c.beginPath(); c.arc((2.6+i*1.1)*P,1.5*P,P*.14,0,7); c.fill(); }
+      for (let i=0;i<5;i++){ c.fillStyle="#3a2615"; c.beginPath(); c.arc((3+i*1.3)*P,3.5*P,P*.28,0,7); c.fill(); }
+      // 酒桶
+      for (const [x,y] of [[11.5,1.6],[12.6,1.6],[13.7,1.6]]){ c.fillStyle="#6e4524"; c.beginPath(); c.arc(x*P,y*P,P*.45,0,7); c.fill(); c.strokeStyle="#2f2f2f"; c.lineWidth=P*.06; c.beginPath(); c.arc(x*P,y*P,P*.35,0,7); c.stroke(); }
+      // 壁爐
+      c.fillStyle="#555049"; c.fillRect((cols-1)*P-P*.2,5*P,P*1.2,2*P); const f=c.createRadialGradient((cols-1.3)*P,6*P,0,(cols-1.3)*P,6*P,P*2.2); f.addColorStop(0,"rgba(255,170,70,.55)"); f.addColorStop(1,"rgba(255,170,70,0)"); c.fillStyle=f; c.fillRect((cols-4)*P,3*P,3*P,6*P); c.fillStyle="#ffb347"; c.fillRect((cols-1)*P,5.5*P,P*.4,P);
+      // 圓桌與椅子
+      const tables=[[4,6.5],[8,6.5],[4,9.3],[8,9.3],[12,9]];
+      for (const [x,y] of tables){ c.fillStyle="rgba(0,0,0,.35)"; c.beginPath(); c.arc(x*P+P*.1,y*P+P*.12,P*.75,0,7); c.fill(); c.fillStyle="#7a4f2c"; c.beginPath(); c.arc(x*P,y*P,P*.72,0,7); c.fill(); c.strokeStyle="#4a2f18"; c.lineWidth=P*.06; c.stroke();
+        for (let i=0;i<4;i++){ const a=i/4*Math.PI*2+0.6; c.fillStyle="#5a3a20"; c.beginPath(); c.arc((x+Math.cos(a)*1.15)*P,(y+Math.sin(a)*1.15)*P,P*.24,0,7); c.fill(); }
+        if (rnd()<.8){ c.fillStyle="#d8c9a0"; c.beginPath(); c.arc((x-.2)*P,(y-.1)*P,P*.12,0,7); c.fill(); } }
+      const walls=[]; for (let y=0;y<rows;y++) for (let x=0;x<cols;x++) walls.push((x===0||y===0||x===cols-1||y===rows-1) && !(y===rows-1&&(x===door||x===door+1)) ? 1 : 0);
+      return walls;
+    } },
+  { id:"arena", name:"競技場", cols:20, rows:20, desc:"圓形沙地與石柱，自動設好牆壁",
+    draw(c, rnd, cols, rows, P){
+      const W=cols*P, H=rows*P, mx=cols/2, my=rows/2, R=8.6;
+      c.fillStyle="#5d5850"; c.fillRect(0,0,W,H);
+      for (let y=0;y<rows;y++) for (let x=0;x<cols;x++){ c.fillStyle=mixHex("#77726a","#4f4b45",rnd()*.6); c.fillRect(x*P+1,y*P+1,P-2,P/2-1); c.fillRect(x*P+1+P*.3,y*P+P/2,P-2,P/2-1); }
+      c.fillStyle="#c9a96e"; c.beginPath(); c.arc(mx*P,my*P,R*P,0,7); c.fill();
+      for (let i=0;i<cols*rows*3;i++){ const a=rnd()*7, d=Math.sqrt(rnd())*R; mpBlob(c,rnd,(mx+Math.cos(a)*d)*P,(my+Math.sin(a)*d)*P,P*(.1+rnd()*.25),rnd()<.5?"rgba(120,90,50,.15)":"rgba(255,240,200,.15)",6); }
+      c.strokeStyle="#3d3934"; c.lineWidth=P*.3; c.beginPath(); c.arc(mx*P,my*P,R*P,0,7); c.stroke();
+      for (let i=0;i<3;i++) mpBlob(c,rnd,(mx+(rnd()-.5)*8)*P,(my+(rnd()-.5)*8)*P,P*.4,"rgba(120,20,20,.3)",9);
+      const pillars=[[mx-4,my-4],[mx+3,my-4],[mx-4,my+3],[mx+3,my+3]];
+      for (const [x,y] of pillars){ c.fillStyle="rgba(0,0,0,.35)"; c.fillRect(x*P+P*.2,y*P+P*.25,P,P); c.fillStyle="#8c877d"; c.fillRect(x*P+P*.05,y*P+P*.05,P*.9,P*.9); c.fillStyle="#a7a196"; c.fillRect(x*P+P*.05,y*P+P*.05,P*.9,P*.2); }
+      const walls=[]; for (let y=0;y<rows;y++) for (let x=0;x<cols;x++) walls.push(Math.hypot(x+.5-mx,y+.5-my)>R || pillars.some(([px,py])=>px===x&&py===y) ? 1 : 0);
+      return walls;
+    } },
+];
+/* 畫出一張範本，回傳 {data, walls}；thumb 時用小尺寸 */
+function renderPreset(p, seed, maxSide){
+  if (!p.draw) return {data:null, walls:null};
+  const P=Math.max(3, Math.floor(maxSide/Math.max(p.cols,p.rows))), c=document.createElement("canvas"); c.width=p.cols*P; c.height=p.rows*P;
+  const x=c.getContext("2d"); const walls=p.draw(x, mulberry(seed), p.cols, p.rows, P);
+  return {canvas:c, walls, data: maxSide<=300 ? c.toDataURL("image/png") : (canWebp?c.toDataURL("image/webp",0.85):c.toDataURL("image/jpeg",0.85))};
+}
+const presetThumbs={};
+function presetThumb(p){ if (!p.draw) return ""; return presetThumbs[p.id] || (presetThumbs[p.id]=renderPreset(p, 7, 140).data); }
+function presetCfg(p, seed){ // 產生要寫進房間的資料
+  const r=renderPreset(p, seed, 1600); const cfg={cols:p.cols, rows:p.rows, bgId:null, bgX:0, bgY:0, bgW:p.cols, walls:r.walls?r.walls.join(""):"", reveal:""};
+  let image=null; if (r.data){ const id=uid(); cfg.bgId=id; image={id, data:r.data}; }
+  return {cfg, image};
+}
+async function applyPreset(id){
+  const p=MAP_PRESETS.find(x=>x.id===id); if (!p || !S.isGM) return;
+  if (!await confirmBox(`套用「${p.name}」`, `格子會改成 ${p.cols}×${p.rows}，並換上新的底圖${p.draw&&p.id!=="road"&&p.id!=="forest"?"和牆壁":""}（原本的牆壁、揭露區會清掉）。棋子和範圍會保留，超出地圖的棋子會移進來。每次套用都會隨機產生不同的版本。`, "套用")) return;
+  toast("繪製地圖中…");
+  await new Promise(r=>setTimeout(r,30));
+  try{
+    const {cfg,image}=presetCfg(p, (Math.random()*1e9)|0);
+    if (image) await ref(`${R}/images/${image.id}`).set({data:image.data, at:Date.now()});
+    resizeGrid(cfg.cols, cfg.rows); patchCfg(cfg); renderTools(); fitView(); renderPanel();
+    toast(`已套用「${p.name}」${image?`（底圖 ${Math.round(image.data.length*0.75/1024)} KB）`:""}`);
+  }catch(err){ onWriteError(err); }
+}
+function presetCards(act){
+  return `<div class="preset-grid">${MAP_PRESETS.map(p=>{ const th=presetThumb(p);
+    return `<button type="button" class="preset" data-${act}="${p.id}">${th?`<img src="${th}" alt="">`:`<span class="preset-blank" style="aspect-ratio:${p.cols}/${p.rows}"></span>`}<b>${esc(p.name)}</b><span>${p.cols}×${p.rows} · ${esc(p.desc)}</span></button>`; }).join("")}</div>`;
 }
 
 /* ============ 自訂範圍 ============ */
@@ -1841,6 +2034,7 @@ function renderHome(msg){
     html+=`<h3>開新房間（GM）</h3>
     <label class="fld"><span>房間名稱</span><input type="text" id="hTitle" maxlength="40" placeholder="例如：輪迴之境 第三章"></label>
     <label class="fld"><span>GM 密碼（至少 4 個字，進 GM 身分時要用）</span><input type="password" id="hPw" autocomplete="new-password"></label>
+    <label class="fld"><span>初始地圖</span><select id="hMap">${MAP_PRESETS.map(p=>`<option value="${p.id}">${esc(p.name)}（${p.cols}×${p.rows}）</option>`).join("")}</select></label>
     <div class="row" style="justify-content:flex-end"><button class="btn gm" data-h="create">建立房間</button></div>
     <h3>加入房間</h3>
     <div class="row"><input type="text" id="hCode" maxlength="6" placeholder="房間代碼" style="flex:1;text-transform:uppercase" class="code" autocapitalize="characters"><button class="btn primary" data-h="join">加入</button></div>`;
@@ -1861,7 +2055,12 @@ function renderHome(msg){
       try{
         let code=roomCode(); for (let i=0;i<4;i++){ const ex=await fb.ref(`rooms/${code}/meta`).once("value"); if(!ex.exists()) break; code=roomCode(); }
         const gmHash=await hashStr(`${code}:gm:${pw}`);
-        await fb.ref(`rooms/${code}`).set({meta:{title,gmHash,created:Date.now()}, cfg:{...DEFAULT_CFG,title}, tokens:defaultPCs(1)});
+        const pr=MAP_PRESETS.find(x=>x.id===$("#hMap").value)||MAP_PRESETS[0], {cfg:pc,image}=presetCfg(pr,(Math.random()*1e9)|0);
+        const room={meta:{title,gmHash,created:Date.now()}, cfg:{...DEFAULT_CFG,...pc,title}, tokens:defaultPCs(1)};
+        if (image) room.images={[image.id]:{data:image.data, at:Date.now()}};
+        if (pc.walls){ const ids=Object.keys(room.tokens), fl=[]; for (let i=0;i<pc.walls.length && fl.length<ids.length;i++) if (pc.walls[i]==="0"){ const x=i%pc.cols, y=Math.floor(i/pc.cols); if (!fl.some(([a,b])=>Math.abs(a-x)<2&&Math.abs(b-y)<1)) fl.push([x,y]); }
+          ids.forEach((id,i)=>{ if (fl[i]){ room.tokens[id].x=fl[i][0]; room.tokens[id].y=fl[i][1]; } }); }
+        await fb.ref(`rooms/${code}`).set(room);
         lsSet("bm-gm-"+code,gmHash); addRecent(code,title);
         location.href=roomUrl(code);
       }catch(err){ b.disabled=false; renderHome(/permission/i.test(String(err&&(err.code||err.message)))?"資料庫拒絕寫入：請照說明設定 Firebase 規則":"建立失敗，請檢查資料庫網址與網路"); }
