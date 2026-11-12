@@ -537,6 +537,10 @@ function paint(){
     const t=S.tokens[S.drag.id]; if (t){ const f=FOOT[t.size]||1;
     lineLabel((S.drag.startX+f/2)*s,(S.drag.startY+f/2)*s,(S.drag.x+f/2)*s,(S.drag.y+f/2)*s, fmtM(gridDist(S.drag.x-S.drag.startX, S.drag.y-S.drag.startY))); }
   }
+  { const mp=movePrev(); if (mp){ const t=S.tokens[mp.id], f=FOOT[t.size]||1, tx=(mp.x+f/2)*s, ty=(mp.y+f/2)*s;
+    ctx.globalAlpha=.45; ctx.fillStyle=t.color||"#3f8f96"; ctx.beginPath(); ctx.arc(tx,ty,f*s/2*0.86,0,7); ctx.fill(); ctx.globalAlpha=1;
+    ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.setLineDash([4,3]); ctx.beginPath(); ctx.arc(tx,ty,f*s/2*0.86,0,7); ctx.stroke(); ctx.setLineDash([]);
+    lineLabel((t.x+f/2)*s,(t.y+f/2)*s,tx,ty, fmtM(gridDist(mp.x-t.x, mp.y-t.y))); } }
   if (gesture && gesture.type==="tplmove" && gesture.holdTid && S.tokens[gesture.holdTid]){
     const tk=S.tokens[gesture.holdTid], p=tokPos(gesture.holdTid), f=FOOT[tk.size]||1, cx=(p.x+f/2)*s, cy=(p.y+f/2)*s, r=f*s/2*0.86+10;
     const frac=gesture.bindTo?1:Math.min(1,(performance.now()-gesture.holdStart)/3000);
@@ -634,7 +638,7 @@ cv.addEventListener("pointerdown", e => {
     }
     const id=hitToken(wx,wy);
     if (id){
-      const wasSel=S.sel===id; S.sel=id; S.selTpl=null; const t=S.tokens[id];
+      const wasSel=S.sel===id; S.sel=id; S.selTpl=null; S.movePrev=null; const t=S.tokens[id];
       if (canControl(t)){ S.drag={id,ox:wx-t.x,oy:wy-t.y,x:t.x,y:t.y,startX:t.x,startY:t.y,moved:false,px:e.offsetX,py:e.offsetY,wasSel}; gesture={type:"drag"}; }
       else { gesture=panG(e); gesture.tapDeselect=wasSel; gesture.tap=true; }
       renderPanel(); draw(); return;
@@ -716,12 +720,15 @@ function endPointer(e){
     if (!d.moved && d.wasSel){ S.sel=null; renderPanel(); }
     sendDrag(null);
   }
-  if (gesture.type==="pan" && gesture.tap && gesture.midDeselect){ if (S.sel||S.selTpl){ S.sel=null; S.selTpl=null; renderPanel(); } }
+  if (gesture.type==="pan" && gesture.tap && gesture.midDeselect){ if (S.sel||S.selTpl) clearSel(); }
   else if (gesture.type==="pan" && gesture.tap){
     if (gesture.tapDeselect){ S.sel=null; renderPanel(); }
     if (gesture.moveTo){ const t=S.tokens[S.sel];
-      if (t && canControl(t)){ const [x,y]=snapToken(t, gesture.moveTo[0], gesture.moveTo[1]);
-        if (x!==t.x || y!==t.y){ const dist=gridDist(x-t.x,y-t.y); patchToken(S.sel,{x,y}); toast(`移動 ${fmtM(dist)}`); } } }
+      if (t && canControl(t)){ const [x,y]=snapToken(t, gesture.moveTo[0], gesture.moveTo[1]), mp=movePrev();
+        if (mp && mp.x===x && mp.y===y) doMovePrev();           // 第二下點同一格：確認移動
+        else if (mp || (x===t.x && y===t.y)) clearSel();         // 點其他地方：取消
+        else S.movePrev={id:S.sel,x,y};                           // 第一下：預覽
+      } }
   }
   if (gesture.type==="tpl" && S.draft){
     const t=S.draft; S.draft=null;
@@ -754,6 +761,10 @@ function endPointer(e){
   }
   gesture=null; draw();
 }
+function movePrev(){ const mp=S.movePrev, t=mp&&S.sel===mp.id&&S.tokens[mp.id]; if (!t || !canControl(t)) return null; return mp; }
+function doMovePrev(){ const mp=movePrev(); S.movePrev=null; if (!mp) return; const t=S.tokens[mp.id];
+  if (mp.x!==t.x || mp.y!==t.y){ const dist=gridDist(mp.x-t.x,mp.y-t.y); patchToken(mp.id,{x:mp.x,y:mp.y}); toast(`移動 ${fmtM(dist)}`); } draw(); }
+function clearSel(){ S.sel=null; S.selTpl=null; S.movePrev=null; renderPanel(); draw(); }
 function cancelGesture(){ S.bgDraft=null; if (S.drag){ S.drag=null; sendDrag(null); } clearInterval(holdTimer); S.tplDrag=null; S.draft=null; S.paint=null; gesture=null; }
 function unbindTpl(id){ const st=S.templates[id]; if(!st) return; let g=normT(st); const [bx,by]=bindShift(g); g=shiftT(g,bx,by); delete g.bind; putTemplate(id,g); toast("已解除綁定"); renderPanel(); }
 function addDefaultPCs(){
@@ -778,7 +789,8 @@ window.addEventListener("keydown", e => {
     if (S.selTpl && canDeleteTpl(S.templates[S.selTpl])) { delTemplate(S.selTpl); S.selTpl=null; renderPanel(); }
     else if (S.sel && canDeleteToken(S.tokens[S.sel])) { deleteTokenFull(S.sel); renderPanel(); }
   }
-  if (e.key==="Escape"){ S.ruler=null; S.sel=null; cancelGesture(); renderPanel(); draw(); }
+  if (e.key==="Escape"){ S.ruler=null; cancelGesture(); clearSel(); }
+  if (e.key==="Enter" && movePrev()) doMovePrev();
 });
 function myColor(){ const mine=Object.values(S.tokens).find(t=>t.ownerId===S.me); return mine?.color || (S.isGM?"#d0602f":"#3f8f96"); }
 
@@ -792,14 +804,16 @@ function renderSelbar(){
     el.innerHTML=`<span class="nm">調整底圖</span><span class="hint">拖曳移動</span><button class="btn" data-sb="bgDown" aria-label="縮小底圖">−</button><button class="btn" data-sb="bgUp" aria-label="放大底圖">+</button><button class="btn primary" data-sb="bgDone">完成</button>`;
     el.classList.add("open"); return;
   }
-  const key = t ? ["t",S.sel,t.name,canControl(t)].join("|") : tp ? ["p",S.selTpl,tp.bind?tp.bind.tid:"",tp.len,tp.w,tp.h,tp.x1,tp.y1,canDeleteTpl(tp)].join("|") : "";
+  const mp=movePrev();
+  const key = t ? ["t",S.sel,t.name,canControl(t),mp?mp.x+","+mp.y+","+t.x+","+t.y:""].join("|") : tp ? ["p",S.selTpl,tp.bind?tp.bind.tid:"",tp.len,tp.w,tp.h,tp.x1,tp.y1,canDeleteTpl(tp)].join("|") : "";
   if (key===selbarKey) return; selbarKey=key;
   const el=$("#selbar");
   if (tp){ const ed=canDeleteTpl(tp), bn=tp.bind&&S.tokens[tp.bind.tid];
     el.innerHTML=`<span class="nm">${esc(tplLabel(tp))}</span>${ed&&!bn?'<span class="hint">可拖曳</span>':""}${ed&&bn?`<button class="btn" data-sb="unbind">解除綁定</button>`:""}${ed?`<button class="btn warn" data-sb="deltpl">刪除</button>`:""}<button class="btn" data-sb="clear">取消</button>`;
     el.classList.add("open"); return; }
   if (!t){ el.classList.remove("open"); el.innerHTML=""; return; }
-  el.innerHTML=`<span class="nm">${esc(t.name)}</span>${canControl(t)?'<span class="hint">點格子移動</span>':""}<button class="btn" data-sb="detail">詳細</button><button class="btn" data-sb="clear">取消</button>`;
+  if (mp){ el.innerHTML=`<span class="nm">${esc(t.name)}</span><span class="hint">移動 ${fmtM(gridDist(mp.x-t.x,mp.y-t.y))}？再點一次同一格確認</span><button class="btn primary" data-sb="mvGo">確認移動</button><button class="btn" data-sb="mvNo">不移動</button>`; el.classList.add("open"); return; }
+  el.innerHTML=`<span class="nm">${esc(t.name)}</span>${canControl(t)?'<span class="hint">點格子預覽移動</span>':""}<button class="btn" data-sb="detail">詳細</button><button class="btn" data-sb="clear">取消選取</button>`;
   el.classList.add("open");
 }
 $("#selbar").addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b) return;
@@ -808,7 +822,9 @@ $("#selbar").addEventListener("click", e=>{ const b=e.target.closest("button"); 
   if (b.dataset.sb==="detail") openSheet("token");
   if (b.dataset.sb==="unbind") unbindTpl(S.selTpl);
   if (b.dataset.sb==="deltpl" && canDeleteTpl(S.templates[S.selTpl])){ delTemplate(S.selTpl); S.selTpl=null; renderPanel(); }
-  if (b.dataset.sb==="clear"){ S.sel=null; S.selTpl=null; renderPanel(); draw(); } });
+  if (b.dataset.sb==="clear") clearSel();
+  if (b.dataset.sb==="mvGo") doMovePrev();
+  if (b.dataset.sb==="mvNo"){ S.movePrev=null; draw(); } });
 $("#zoom").addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b) return;
   const r=cv.getBoundingClientRect(), ns=clamp(S.view.s*(+b.dataset.z),8,140), q=ns/S.view.s, cx=r.width/2, cy=r.height/2;
   S.view.x=cx-(cx-S.view.x)*q; S.view.y=cy-(cy-S.view.y)*q; S.view.s=ns; draw(); });
